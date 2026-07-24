@@ -124,16 +124,18 @@ function portrait(hidden = false): DialogueFrame["portrait"] {
 }
 
 function frame(commandIndex: number, text: string, expression: number, visuals: VisualReference[], hidden = false): DialogueFrame {
+  const pages = text.split("▽");
+  const voiceId = commands[commandIndex].parameters[2] ?? 0;
   return {
     commandIndex,
     text,
     textBytes: new TextEncoder().encode(text).length,
-    pages: text.split("▽"),
+    pages,
     speakerId: 1,
     speakerName: "碇真嗣",
     expressionId: expression,
     expressionName: `表情 ${expression}`,
-    audioId: hidden ? null : 1040 + commandIndex,
+    audioTracks: pages.map((_, pageIndex) => ({ pageIndex, voiceId: voiceId > 0 ? voiceId + pageIndex : null })),
     portrait: portrait(hidden),
     visuals,
     diagnostics: hidden ? [diagnostic("保留头像关联，但运行时隐藏头像", commands[commandIndex].offset, "info")] : [],
@@ -189,6 +191,19 @@ export const mockIpc: StudioIpc = {
     const name = imageResource.members.at(-1)?.name ?? "";
     const isPortrait = name.includes("f01_") || name.includes("shinji");
     return { token: "demo", url: isPortrait ? "/demo-portrait.png" : "/demo-stage.png", mime: "image/png", width: isPortrait ? 220 : 480, height: 272, pixelFormat: "Indexed8", divisions: [], approximate: false };
+  },
+  async getAudioPreview(_document, voiceId) {
+    return {
+      token: "demo-audio",
+      url: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=",
+      mime: "audio/wav",
+      voiceId,
+      archive: 0,
+      entry: voiceId - 1,
+      sampleRate: 44_100,
+      channels: 1,
+      durationMillis: 0,
+    };
   },
   async getSessionStatus() { return { cacheBytes: 12_746_208 }; },
   demoEvsResource(sessionId: SessionId) { return { sessionId, isoPath: "/PSP_GAME/USRDIR/event/a000.har", members: [{ index: 0, name: "a000.evs" }] }; },

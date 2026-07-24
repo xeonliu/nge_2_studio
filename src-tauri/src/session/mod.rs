@@ -1,8 +1,10 @@
 use iso_vfs::IsoImage;
 use lru::LruCache;
+use nge2_formats::audio::{index_wave_archive, WaveEntry};
 use nge2_formats::hgar::HgarArchive;
+use nge2_formats::voice::{voice_ordinal, VOICE_ENTRY_COUNT};
 use nge2_formats::zpt;
-use nge2_preview::{ResourceRef, SessionId};
+use nge2_preview::{ContainerMember, GamePath, ResourceRef, SessionId};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -30,12 +32,27 @@ pub struct IsoSession {
     resources: Mutex<SizedLru<Arc<Vec<u8>>>>,
     previews: Mutex<SizedLru<Arc<PreviewBlob>>>,
     variants: Mutex<HashMap<(String, u32), ResourceRef>>,
+    voice_archives: Mutex<Option<Arc<Vec<VoiceArchiveIndex>>>>,
 }
 
 #[derive(Clone, Debug)]
 pub struct PreviewBlob {
     pub mime: &'static str,
     pub bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct VoiceClip {
+    pub archive: u8,
+    pub entry: u32,
+    pub resource: ResourceRef,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+struct VoiceArchiveIndex {
+    path: String,
+    entries: Vec<WaveEntry>,
 }
 
 struct SizedLru<T> {
@@ -97,6 +114,7 @@ impl SessionManager {
             resources: Mutex::new(SizedLru::new(128, RESOURCE_CACHE_LIMIT)),
             previews: Mutex::new(SizedLru::new(96, PREVIEW_CACHE_LIMIT)),
             variants: Mutex::new(HashMap::new()),
+            voice_archives: Mutex::new(None),
         });
         let mut sessions = self.inner.sessions.write();
         sessions.clear();
@@ -160,6 +178,63 @@ impl IsoSession {
         let size = blob.bytes.len();
         self.previews.lock().put(token.clone(), size, Arc::new(blob));
         token
+    }
+
+    pub fn voice_clip(&self, voice_id: u32) -> Result<VoiceClip, String> {
+        let ordinal = voice_ordinal(voice_id)
+            .ok_or_else(|| format!("voice ID 0x{voice_id:X} 没有对应的音频条目"))?;
+        let archives = self.voice_archive_indexes()?;
+        let mut remaining = ordinal;
+        for (archive_index, archive) in archives.iter().enumerate() {
+            if remaining >= archive.entries.len() {
+                remaining -= archive.entries.len();
+                continue;
+            }
+            let entry = archive.entries[remaining];
+            let bytes = self
+                .iso
+                .read_file_range(&archive.path, entry.offset, entry.size as usize)
+                .map_err(|error| error.to_string())?;
+            let resource = ResourceRef {
+                session_id: self.id.clone(),
+                iso_path: GamePath(archive.path.clone()),
+                members: vec![ContainerMember {
+                    index: remaining as u32,
+                    name: format!("voice_{voice_id:04X}.at3"),
+                }],
+            };
+            return Ok(VoiceClip {
+                archive: archive_index as u8,
+                entry: remaining as u32,
+                resource,
+                bytes,
+            });
+        }
+        Err(format!("voice ID 0x{voice_id:X} 的序号超出语音归档"))
+    }
+
+    fn voice_archive_indexes(&self) -> Result<Arc<Vec<VoiceArchiveIndex>>, String> {
+        if let Some(indexes) = self.voice_archives.lock().clone() {
+            return Ok(indexes);
+        }
+        let mut indexes = Vec::with_capacity(3);
+        for archive in 0..3u8 {
+            let path = format!("/PSP_GAME/USRDIR/voice/na{archive}.bin");
+            let size = self.iso.entry(&path).map_err(|error| error.to_string())?.size;
+            let mut file = self.iso.open_file(&path).map_err(|error| error.to_string())?;
+            let entries = index_wave_archive(&mut file, u64::from(size))
+                .map_err(|error| format!("{path}: {error}"))?;
+            indexes.push(VoiceArchiveIndex { path, entries });
+        }
+        let total = indexes.iter().map(|archive| archive.entries.len()).sum::<usize>();
+        if total != VOICE_ENTRY_COUNT {
+            return Err(format!(
+                "语音归档共 {total} 条，预期 {VOICE_ENTRY_COUNT} 条；ISO 版本或文件可能不受支持"
+            ));
+        }
+        let indexes = Arc::new(indexes);
+        *self.voice_archives.lock() = Some(indexes.clone());
+        Ok(indexes)
     }
 
     pub fn select_variant(&self, document: &ResourceRef, command_index: u32, selected: ResourceRef) {

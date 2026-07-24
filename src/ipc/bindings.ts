@@ -30,11 +30,23 @@ export const commands = {
 	selectEvsVariant: (document: ResourceRef, commandIndex: number, selected: ResourceRef) => typedError<VisualReference, string>(__TAURI_INVOKE("select_evs_variant", { document, commandIndex, selected })),
 	readResourceRange: (resource: ResourceRef, offset: number, length: number) => typedError<BinaryChunk, string>(__TAURI_INVOKE("read_resource_range", { resource, offset, length })),
 	getImagePreview: (resource: ResourceRef) => typedError<ImagePreview, string>(__TAURI_INVOKE("get_image_preview", { resource })),
+	getAudioPreview: (document: ResourceRef, voiceId: number) => typedError<AudioPreview, string>(__TAURI_INVOKE("get_audio_preview", { document, voiceId })),
 	exportResource: (resource: ResourceRef, destination: string) => typedError<ExportResult, string>(__TAURI_INVOKE("export_resource", { resource, destination })),
 	getSessionStatus: (sessionId: SessionId) => typedError<SessionStatus, string>(__TAURI_INVOKE("get_session_status", { sessionId })),
 };
 
 /* Types */
+export type AudioPreview = {
+	token: string,
+	mime: string,
+	voiceId: number,
+	archive: number,
+	entry: number,
+	sampleRate: number,
+	channels: number,
+	durationMillis: number,
+};
+
 export type BinaryChunk = {
 	offset: number,
 	total: number,
@@ -48,6 +60,11 @@ export type ContainerMember = {
 
 export type DiagnosticSeverity = "info" | "warning" | "error";
 
+export type DialogueAudioTrack = {
+	pageIndex: number,
+	voiceId: number | null,
+};
+
 export type DialogueFrame = {
 	commandIndex: number,
 	text: string,
@@ -57,7 +74,7 @@ export type DialogueFrame = {
 	speakerName: string,
 	expressionId: number,
 	expressionName: string,
-	audioId: number | null,
+	audioTracks: DialogueAudioTrack[],
 	portrait: PortraitReference | null,
 	visuals: VisualReference[],
 	diagnostics: FormatDiagnostic[],

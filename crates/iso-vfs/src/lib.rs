@@ -9,6 +9,7 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::MutexGuard;
 use thiserror::Error;
 
 const SECTOR_SIZE: u64 = 2048;
@@ -72,6 +73,46 @@ pub struct IsoImage {
     file: Mutex<File>,
     file_len: u64,
     volume: Volume,
+}
+
+pub struct IsoFile<'a> {
+    file: MutexGuard<'a, File>,
+    absolute_start: u64,
+    len: u64,
+    position: u64,
+}
+
+impl Read for IsoFile<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let remaining = self.len.saturating_sub(self.position);
+        let length = buffer.len().min(remaining as usize);
+        if length == 0 {
+            return Ok(0);
+        }
+        self.file
+            .seek(SeekFrom::Start(self.absolute_start + self.position))?;
+        let read = self.file.read(&mut buffer[..length])?;
+        self.position += read as u64;
+        Ok(read)
+    }
+}
+
+impl Seek for IsoFile<'_> {
+    fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+        let next = match position {
+            SeekFrom::Start(value) => i128::from(value),
+            SeekFrom::Current(value) => i128::from(self.position) + i128::from(value),
+            SeekFrom::End(value) => i128::from(self.len) + i128::from(value),
+        };
+        if !(0..=i128::from(self.len)).contains(&next) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "seek is outside the ISO file extent",
+            ));
+        }
+        self.position = next as u64;
+        Ok(self.position)
+    }
 }
 
 impl std::fmt::Debug for IsoImage {
@@ -149,6 +190,24 @@ impl IsoImage {
             return Err(IsoError::NotDirectory(normalized));
         }
         self.read_extent(&extent)
+    }
+
+    pub fn open_file(&self, path: &str) -> Result<IsoFile<'_>, IsoError> {
+        let normalized = normalize_path(path)?;
+        let extent = self.resolve_extent(&normalized)?;
+        if extent.is_directory {
+            return Err(IsoError::NotDirectory(normalized));
+        }
+        let file = self
+            .file
+            .lock()
+            .map_err(|_| IsoError::InvalidImage("ISO file lock was poisoned".into()))?;
+        Ok(IsoFile {
+            file,
+            absolute_start: u64::from(extent.lba) * u64::from(self.volume.block_size),
+            len: u64::from(extent.size),
+            position: 0,
+        })
     }
 
     pub fn read_file_range(
@@ -494,6 +553,12 @@ mod tests {
         assert!(root[0].is_directory);
         assert_eq!(image.read_file("/readme.txt").unwrap(), b"hello");
         assert_eq!(image.read_file("PSP_GAME/PARAM.SFO").unwrap(), b"SFO");
+        let mut file = image.open_file("/README.TXT").unwrap();
+        file.seek(SeekFrom::Start(1)).unwrap();
+        let mut tail = String::new();
+        file.read_to_string(&mut tail).unwrap();
+        assert_eq!(tail, "ello");
+        assert!(file.seek(SeekFrom::Start(6)).is_err());
         fs::remove_file(path).unwrap();
     }
 

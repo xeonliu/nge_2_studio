@@ -1,6 +1,9 @@
+pub mod audio;
 pub mod evs;
 pub mod hgar;
 pub mod hgpt;
+#[path = "voice_ranges.rs"]
+pub mod voice;
 pub mod zpt;
 
 use thiserror::Error;
@@ -23,6 +26,8 @@ pub enum FormatError {
     Decompression(String),
     #[error("PNG encoding failed: {0}")]
     Png(String),
+    #[error("audio decode failed: {0}")]
+    Audio(String),
 }
 
 pub(crate) fn bytes<const N: usize>(data: &[u8], offset: usize) -> Result<[u8; N], FormatError> {

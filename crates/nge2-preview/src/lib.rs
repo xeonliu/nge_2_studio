@@ -4,13 +4,13 @@
 
 use nge2_formats::evs::{DiagnosticSeverity, EvsCommand, EvsScript, FormatDiagnostic};
 use nge2_formats::hgar::HgarArchive;
+use nge2_formats::voice::voice_ordinal;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 const VARIABLE_TOKENS: &[&str] = &["$w", "$x", "$y", "$d", "$e", "$f"];
 const NO_AVATAR: u32 = 0x1000;
 const NO_MESSAGE_BOX: u32 = 0x2000;
-const NO_AUDIO: u32 = 0x4000;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, Type)]
 #[serde(transparent)]
@@ -91,6 +91,13 @@ pub struct PortraitReference {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct DialogueAudioTrack {
+    pub page_index: u32,
+    pub voice_id: Option<u32>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct DialogueFrame {
     pub command_index: u32,
     pub text: String,
@@ -100,7 +107,7 @@ pub struct DialogueFrame {
     pub speaker_name: String,
     pub expression_id: u32,
     pub expression_name: String,
-    pub audio_id: Option<u32>,
+    pub audio_tracks: Vec<DialogueAudioTrack>,
     pub portrait: Option<PortraitReference>,
     pub visuals: Vec<VisualReference>,
     pub diagnostics: Vec<FormatDiagnostic>,
@@ -260,16 +267,31 @@ fn dialogue_frame(command: &EvsCommand, visuals: &[VisualReference]) -> Dialogue
         runtime_hidden,
     });
     let text = command.content.clone().unwrap_or_default();
+    let pages = text.split('▽').map(str::to_owned).collect::<Vec<_>>();
+    let audio_tracks = pages
+        .iter()
+        .enumerate()
+        .map(|(page_index, _)| {
+            let voice_id = (audio_parameter > 0)
+                .then(|| audio_parameter.checked_add(page_index as u32))
+                .flatten()
+                .filter(|voice_id| voice_ordinal(*voice_id).is_some());
+            DialogueAudioTrack {
+                page_index: page_index as u32,
+                voice_id,
+            }
+        })
+        .collect();
     DialogueFrame {
         command_index: command.index,
-        pages: text.split('▽').map(str::to_owned).collect(),
+        pages,
         text,
         text_bytes: command.content_bytes,
         speaker_id,
         speaker_name: speaker_name(speaker_id).into(),
         expression_id,
         expression_name: format!("表情 {expression_id}"),
-        audio_id: (audio_parameter & NO_AUDIO == 0).then_some(audio_parameter & 0x3fff),
+        audio_tracks,
         portrait,
         visuals: visuals.to_vec(),
         diagnostics: frame_diagnostics,
@@ -404,6 +426,22 @@ mod tests {
         }
     }
 
+    fn say(content: &str, voice_id: u32) -> EvsCommand {
+        EvsCommand {
+            index: 0,
+            offset: 16,
+            opcode: 0x01,
+            opcode_hex: "0x01".into(),
+            name: "SAY".into(),
+            parameters: vec![1, 1, voice_id],
+            content: Some(content.into()),
+            content_bytes: content.len() as u32,
+            raw_payload: Vec::new(),
+            supported: true,
+            diagnostics: Vec::new(),
+        }
+    }
+
     #[test]
     fn resolves_exact_before_variants() {
         let archive = archive(&["bg_1.hpt", "bg_2.zpt"]);
@@ -418,6 +456,32 @@ mod tests {
         let archive = archive(&["bg_1.hpt"]);
         let result = resolve_visual(&visual("bg_$q"), &archive, &resource());
         assert!(matches!(result.resolution, Resolution::Missing));
+    }
+
+    #[test]
+    fn maps_each_dialogue_page_to_the_next_voice_id() {
+        let frame = dialogue_frame(&say("そうね。▽この子達の為にも。", 28_439), &[]);
+        assert_eq!(frame.pages, ["そうね。", "この子達の為にも。"]);
+        assert_eq!(
+            frame.audio_tracks,
+            [
+                DialogueAudioTrack { page_index: 0, voice_id: Some(28_439) },
+                DialogueAudioTrack { page_index: 1, voice_id: Some(28_440) },
+            ]
+        );
+    }
+
+    #[test]
+    fn preserves_silent_voice_table_holes_without_shifting_later_pages() {
+        let frame = dialogue_frame(&say("first▽silent▽last", 32_026), &[]);
+        assert_eq!(
+            frame.audio_tracks,
+            [
+                DialogueAudioTrack { page_index: 0, voice_id: Some(32_026) },
+                DialogueAudioTrack { page_index: 1, voice_id: None },
+                DialogueAudioTrack { page_index: 2, voice_id: Some(32_028) },
+            ]
+        );
     }
 
     #[test]

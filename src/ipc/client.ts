@@ -2,6 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { commands } from "./bindings";
 import type {
+  AudioPreview,
   BinaryChunk,
   EvsCommandPage,
   EvsDocument,
@@ -47,6 +48,10 @@ const realIpc = {
     const preview = unwrap(await commands.getImagePreview(resource));
     return { ...preview, url: convertFileSrc(preview.token, "nge2-preview") };
   },
+  async getAudioPreview(document: ResourceRef, voiceId: number) {
+    const preview = unwrap(await commands.getAudioPreview(document, voiceId));
+    return { ...preview, url: convertFileSrc(preview.token, "nge2-preview") };
+  },
   async getSessionStatus(sessionId: SessionId) { return unwrap(await commands.getSessionStatus(sessionId)); },
   demoEvsResource(_sessionId: SessionId): ResourceRef {
     throw new Error("演示资源仅在浏览器开发模式可用");
@@ -65,6 +70,7 @@ export interface StudioIpc {
   selectEvsVariant(document: ResourceRef, commandIndex: number, selected: ResourceRef): Promise<VisualReference>;
   readResourceRange(resource: ResourceRef, offset: number, length: number): Promise<BinaryChunk>;
   getImagePreview(resource: ResourceRef): Promise<ImagePreview & { url: string }>;
+  getAudioPreview(document: ResourceRef, voiceId: number): Promise<AudioPreview & { url: string }>;
   getSessionStatus(sessionId: SessionId): Promise<SessionStatus>;
   demoEvsResource(sessionId: SessionId): ResourceRef;
 }

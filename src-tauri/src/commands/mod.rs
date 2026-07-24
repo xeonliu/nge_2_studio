@@ -1,5 +1,6 @@
 use crate::session::{IsoSession, PreviewBlob, SessionManager};
 use iso_vfs::{IsoEntry, IsoMetadata};
+use nge2_formats::audio::decode_atrac3plus;
 use nge2_formats::evs::{EvsCommand, EvsScript, FormatDiagnostic};
 use nge2_formats::hgar::{HgarArchive, HgarEntry};
 use nge2_formats::hgpt::{HgptDivision, HgptImage, HgptPixelFormat};
@@ -92,6 +93,19 @@ pub struct ImagePreview {
     pub pixel_format: HgptPixelFormat,
     pub divisions: Vec<HgptDivision>,
     pub approximate: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioPreview {
+    pub token: String,
+    pub mime: String,
+    pub voice_id: u32,
+    pub archive: u8,
+    pub entry: u32,
+    pub sample_rate: u32,
+    pub channels: u16,
+    pub duration_millis: u32,
 }
 
 #[derive(Clone, Debug, Serialize, Type)]
@@ -293,6 +307,35 @@ pub fn get_image_preview(
         pixel_format: image.pixel_format,
         divisions: image.divisions,
         approximate: false,
+    })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_audio_preview(
+    document: ResourceRef,
+    voice_id: u32,
+    manager: State<'_, SessionManager>,
+) -> Result<AudioPreview, String> {
+    let session = manager.get(&document.session_id)?;
+    let clip = session.voice_clip(voice_id)?;
+    let decoded = decode_atrac3plus(&clip.bytes).map_err(|error| error.to_string())?;
+    let token = session.store_preview(
+        &clip.resource,
+        PreviewBlob {
+            mime: "audio/wav",
+            bytes: decoded.wav,
+        },
+    );
+    Ok(AudioPreview {
+        token,
+        mime: "audio/wav".into(),
+        voice_id,
+        archive: clip.archive,
+        entry: clip.entry,
+        sample_rate: decoded.sample_rate,
+        channels: decoded.channels,
+        duration_millis: decoded.duration_millis,
     })
 }
 

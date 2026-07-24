@@ -61,7 +61,7 @@ export function EvsViewer({ tab }: { tab: OpenedResource }) {
       {mode === "storyboard" ? (
         <>
           <StoryboardStage document={tab.resource} frame={selectedFrame} visual={selectedVisual} onVariantSelected={() => void frames.refetch()} />
-          <DialoguePanel frame={selectedFrame} />
+          <DialoguePanel document={tab.resource} frame={selectedFrame} />
         </>
       ) : (
         <EvsStateInspector command={selectedCommand} visual={selectedVisual} />
@@ -74,4 +74,3 @@ export function EvsViewer({ tab }: { tab: OpenedResource }) {
     </div>
   );
 }
-

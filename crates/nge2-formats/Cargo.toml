@@ -5,10 +5,10 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+atrac3p-decoder.workspace = true
 encoding_rs.workspace = true
 flate2.workspace = true
 png.workspace = true
 serde.workspace = true
 specta.workspace = true
 thiserror.workspace = true
-
