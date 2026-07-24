@@ -10,6 +10,10 @@ the maintained parsers in the NGE2 translation project.
   body begins with a little-endian decompressed size followed by raw DEFLATE.
 - HGPT supports 4-bit palette (`0x14`), 8-bit palette (`0x13`) and RGBA
   (`0x8800`) tiled pixels. Alpha values use the game's doubled 7-bit encoding.
+- HGOB stores the object hierarchy and local transforms, while HGMS stores PSP
+  GE mesh display lists, materials, texture references and skin palettes. See
+  [HGOB/HGMS model format notes](hob-hms.md) for the current binary layouts,
+  IDA evidence and proposed glTF conversion path.
 - EVS has an offset table. Each record has a two-byte opcode and two-byte body
   size. Unknown records are retained as raw payload and do not stop parsing.
 
