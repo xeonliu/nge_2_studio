@@ -1989,6 +1989,7 @@ dependencies = [
  "serde",
  "specta",
  "thiserror 2.0.19",
+ "winapi",
 ]
 
 [[package]]

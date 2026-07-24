@@ -12,3 +12,7 @@ png.workspace = true
 serde.workspace = true
 specta.workspace = true
 thiserror.workspace = true
+
+# cpal 0.11.0 uses this API but omits its winapi feature declaration.
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["errhandlingapi"] }
