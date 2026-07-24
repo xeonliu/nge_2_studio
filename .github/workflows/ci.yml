@@ -26,4 +26,3 @@ jobs:
       - run: cargo test --workspace
       - run: yarn typecheck
       - run: yarn build
-      - run: yarn tauri build
