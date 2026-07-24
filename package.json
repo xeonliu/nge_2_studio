@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "bindings": "cargo run -q -p nge2-iso-studio --bin export-bindings",
+    "bindings": "cargo run -q -p nge2-iso-studio --example export-bindings",
     "build": "tsc -b && vite build",
     "typecheck": "yarn bindings && tsc -b --pretty false",
     "test:e2e": "playwright test",

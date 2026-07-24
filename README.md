@@ -32,3 +32,18 @@ yarn tauri build
 
 No game data is distributed with this repository. Tests construct minimal
 binary fixtures at runtime.
+
+## Releases
+
+The release workflow builds installers for Windows x64, Linux x64, macOS
+Apple Silicon, and macOS Intel. Push a version tag matching both
+`package.json` and `src-tauri/tauri.conf.json` to publish a GitHub Release:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow can also be started manually with an existing or new matching
+tag. Release bundles are unsigned unless the repository is configured with
+platform signing credentials.
