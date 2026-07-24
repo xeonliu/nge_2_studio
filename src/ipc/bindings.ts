@@ -138,7 +138,7 @@ export type HgptDivision = {
 export type HgptPixelFormat = "Indexed4" | "Indexed8" | "Rgba8888";
 
 export type ImagePreview = {
-	url: string,
+	token: string,
 	mime: string,
 	width: number,
 	height: number,

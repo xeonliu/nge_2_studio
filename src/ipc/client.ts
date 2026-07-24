@@ -1,4 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { commands } from "./bindings";
 import type {
   BinaryChunk,
@@ -42,7 +43,10 @@ const realIpc = {
   async getEvsFrames(resource: ResourceRef) { return unwrap(await commands.getEvsFrames(resource, null)); },
   async selectEvsVariant(document: ResourceRef, commandIndex: number, selected: ResourceRef) { return unwrap(await commands.selectEvsVariant(document, commandIndex, selected)); },
   async readResourceRange(resource: ResourceRef, offset: number, length: number) { return unwrap(await commands.readResourceRange(resource, offset, length)); },
-  async getImagePreview(resource: ResourceRef) { return unwrap(await commands.getImagePreview(resource)); },
+  async getImagePreview(resource: ResourceRef) {
+    const preview = unwrap(await commands.getImagePreview(resource));
+    return { ...preview, url: convertFileSrc(preview.token, "nge2-preview") };
+  },
   async getSessionStatus(sessionId: SessionId) { return unwrap(await commands.getSessionStatus(sessionId)); },
   demoEvsResource(_sessionId: SessionId): ResourceRef {
     throw new Error("演示资源仅在浏览器开发模式可用");
@@ -60,10 +64,9 @@ export interface StudioIpc {
   getEvsFrames(resource: ResourceRef): Promise<EvsFramePage>;
   selectEvsVariant(document: ResourceRef, commandIndex: number, selected: ResourceRef): Promise<VisualReference>;
   readResourceRange(resource: ResourceRef, offset: number, length: number): Promise<BinaryChunk>;
-  getImagePreview(resource: ResourceRef): Promise<ImagePreview>;
+  getImagePreview(resource: ResourceRef): Promise<ImagePreview & { url: string }>;
   getSessionStatus(sessionId: SessionId): Promise<SessionStatus>;
   demoEvsResource(sessionId: SessionId): ResourceRef;
 }
 
 export const ipc: StudioIpc = isTauriRuntime() ? realIpc : mockIpc;
-

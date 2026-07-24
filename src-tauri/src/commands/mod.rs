@@ -85,7 +85,7 @@ pub struct BinaryChunk {
 #[derive(Clone, Debug, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ImagePreview {
-    pub url: String,
+    pub token: String,
     pub mime: String,
     pub width: u32,
     pub height: u32,
@@ -286,7 +286,7 @@ pub fn get_image_preview(
         },
     );
     Ok(ImagePreview {
-        url: format!("nge2-preview://localhost/{token}"),
+        token,
         mime: "image/png".into(),
         width: image.width,
         height: image.height,

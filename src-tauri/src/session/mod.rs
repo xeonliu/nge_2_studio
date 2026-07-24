@@ -1,6 +1,7 @@
 use iso_vfs::IsoImage;
 use lru::LruCache;
 use nge2_formats::hgar::HgarArchive;
+use nge2_formats::zpt;
 use nge2_preview::{ResourceRef, SessionId};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
@@ -139,11 +140,13 @@ impl IsoSession {
             .iso
             .read_file(&resource.iso_path.0)
             .map_err(|error| error.to_string())?;
+        data = decode_zpt(&resource.iso_path.0, data)?;
         for member in &resource.members {
             let archive = HgarArchive::parse(&data).map_err(|error| error.to_string())?;
             data = archive
                 .entry_data(&data, member.index as usize)
                 .map_err(|error| error.to_string())?;
+            data = decode_zpt(&member.name, data)?;
         }
         let data = Arc::new(data);
         self.resources
@@ -174,6 +177,14 @@ impl IsoSession {
 
     pub fn cache_bytes(&self) -> u32 {
         (self.resources.lock().bytes + self.previews.lock().bytes) as u32
+    }
+}
+
+fn decode_zpt(name: &str, data: Vec<u8>) -> Result<Vec<u8>, String> {
+    if name.to_ascii_lowercase().ends_with(".zpt") && data.get(..4) != Some(b"HGPT") {
+        zpt::decompress(&data).map_err(|error| error.to_string())
+    } else {
+        Ok(data)
     }
 }
 

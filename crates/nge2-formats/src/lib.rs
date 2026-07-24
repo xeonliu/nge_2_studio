@@ -1,6 +1,7 @@
 pub mod evs;
 pub mod hgar;
 pub mod hgpt;
+pub mod zpt;
 
 use thiserror::Error;
 
@@ -42,4 +43,3 @@ pub(crate) fn u32_le(data: &[u8], offset: usize) -> Result<u32, FormatError> {
 pub(crate) fn align(value: usize, alignment: usize) -> usize {
     value.div_ceil(alignment) * alignment
 }
-

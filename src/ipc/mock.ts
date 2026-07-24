@@ -188,7 +188,7 @@ export const mockIpc: StudioIpc = {
   async getImagePreview(imageResource) {
     const name = imageResource.members.at(-1)?.name ?? "";
     const isPortrait = name.includes("f01_") || name.includes("shinji");
-    return { url: isPortrait ? "/demo-portrait.png" : "/demo-stage.png", mime: "image/png", width: isPortrait ? 220 : 480, height: 272, pixelFormat: "Indexed8", divisions: [], approximate: false };
+    return { token: "demo", url: isPortrait ? "/demo-portrait.png" : "/demo-stage.png", mime: "image/png", width: isPortrait ? 220 : 480, height: 272, pixelFormat: "Indexed8", divisions: [], approximate: false };
   },
   async getSessionStatus() { return { cacheBytes: 12_746_208 }; },
   demoEvsResource(sessionId: SessionId) { return { sessionId, isoPath: "/PSP_GAME/USRDIR/event/a000.har", members: [{ index: 0, name: "a000.evs" }] }; },
@@ -196,4 +196,3 @@ export const mockIpc: StudioIpc = {
 
 const _resolutionTypeCheck: Resolution = { status: "Missing" };
 void _resolutionTypeCheck;
-
