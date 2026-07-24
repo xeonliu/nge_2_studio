@@ -1,0 +1,37 @@
+[package]
+name = "nge2-iso-studio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+default-run = "nge2-iso-studio"
+
+[lib]
+name = "nge2_iso_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "nge2-iso-studio"
+path = "src/main.rs"
+
+[[bin]]
+name = "export-bindings"
+path = "src/bin/export_bindings.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+iso-vfs = { path = "../crates/iso-vfs" }
+nge2-formats = { path = "../crates/nge2-formats" }
+nge2-preview = { path = "../crates/nge2-preview" }
+lru = "0.14"
+parking_lot = "0.12"
+serde.workspace = true
+specta.workspace = true
+specta-typescript = "0.0.12"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-specta = { version = "2.0.0-rc.25", features = ["derive", "typescript"] }
+thiserror.workspace = true
+uuid = { version = "1", features = ["v4"] }

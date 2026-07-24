@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/iso-vfs",
+  "crates/nge2-formats",
+  "crates/nge2-preview",
+  "src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+repository = "https://github.com/xeonliu/nge2-iso-studio"
+
+[workspace.dependencies]
+encoding_rs = "0.8"
+flate2 = "1"
+png = "0.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+specta = { version = "2.0.0-rc.25", features = ["derive"] }
+thiserror = "2"
