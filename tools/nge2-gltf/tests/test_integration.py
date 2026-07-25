@@ -7,8 +7,22 @@ import numpy as np
 from pygltflib import GLTF2
 
 from nge2_gltf.cli import main
+from nge2_gltf.gltf import _Builder, _material
+from nge2_gltf.hgms import HgmsMaterial
 
 from .fixtures import make_archive, make_hgar, make_hgms, make_hgob, make_hgpt
+
+
+def test_material_cache_includes_resolved_hgms_texture() -> None:
+    builder = _Builder()
+    source = HgmsMaterial(b"\x80\x80\x80\x80\x00\x00\x06\x00", 0)
+    first = _material(builder, source, [3], blend=False)
+    second = _material(builder, source, [7], blend=False)
+    repeated = _material(builder, source, [3], blend=False)
+    assert first != second
+    assert repeated == first
+    assert builder.materials[first]["pbrMetallicRoughness"]["baseColorTexture"] == {"index": 3}
+    assert builder.materials[second]["pbrMetallicRoughness"]["baseColorTexture"] == {"index": 7}
 
 
 def test_minimal_archive_exports_embedded_skinned_glb(tmp_path) -> None:

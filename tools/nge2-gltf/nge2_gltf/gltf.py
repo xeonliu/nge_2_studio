@@ -495,7 +495,10 @@ def _material(
     blend: bool,
 ) -> int:
     texture_index = source.texture_index
-    key = (source.raw, blend)
+    resolved_texture = None if texture_index == 0xFF else texture_indices[texture_index]
+    # Material texture indices are local to one HGMS. Identical eight-byte
+    # records in different HGMS resources can therefore resolve to different images.
+    key = (source.raw, resolved_texture, blend)
     for index, material in enumerate(builder.materials):
         if material.get("extras", {}).get("_cacheKey") == repr(key):
             return index
@@ -504,8 +507,8 @@ def _material(
         "metallicFactor": 0.0,
         "roughnessFactor": 1.0,
     }
-    if texture_index != 0xFF:
-        pbr["baseColorTexture"] = {"index": texture_indices[texture_index]}
+    if resolved_texture is not None:
+        pbr["baseColorTexture"] = {"index": resolved_texture}
     document = {
         "name": f"material_{len(builder.materials)}",
         "pbrMetallicRoughness": pbr,

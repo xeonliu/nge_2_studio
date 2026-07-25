@@ -99,3 +99,14 @@ The converter was additionally run in strict mode against the local
 `ULJS00061` `shinji00`, `asuka00`, `rei00`, `misato00`, and `gendo00` character
 archives, the `gmkdoor1` static model in `mapobj01.har`, and `ULJS00064`
 `shinji00`. Generated game-derived files are intentionally not committed.
+
+When Blender is installed, an exported GLB can also be inspected headlessly:
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender \
+  --background --factory-startup \
+  --python scripts/blender_inspect.py -- MODEL.glb REVIEW_DIR
+```
+
+This writes a Blender-import report plus front, back, side, face, and torso PNG
+renders without modifying the current Blender project.

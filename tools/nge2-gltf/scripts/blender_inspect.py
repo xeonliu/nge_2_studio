@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
 
@@ -43,9 +42,9 @@ def render_view(
 ) -> None:
     distance = max(size) * 3.0 + 1.0
     if axis == "front":
-        camera.location = (center.x, center.y - distance, target_z)
-    elif axis == "back":
         camera.location = (center.x, center.y + distance, target_z)
+    elif axis == "back":
+        camera.location = (center.x, center.y - distance, target_z)
     elif axis == "left":
         camera.location = (center.x - distance, center.y, target_z)
     else:
@@ -107,7 +106,9 @@ def main() -> None:
                 "boundsMax": list(obj_max),
                 "uvMin": uv_min,
                 "uvMax": uv_max,
-                "materials": [slot.material.name if slot.material else None for slot in obj.material_slots],
+                "materials": [
+                    slot.material.name if slot.material else None for slot in obj.material_slots
+                ],
                 "modifiers": [modifier.type for modifier in obj.modifiers],
             }
         )
@@ -120,7 +121,11 @@ def main() -> None:
         "objects": objects,
         "materials": [material_report(material) for material in bpy.data.materials],
         "images": [
-            {"name": image.name, "size": list(image.size), "colorspace": image.colorspace_settings.name}
+            {
+                "name": image.name,
+                "size": list(image.size),
+                "colorspace": image.colorspace_settings.name,
+            }
             for image in bpy.data.images
         ],
     }
