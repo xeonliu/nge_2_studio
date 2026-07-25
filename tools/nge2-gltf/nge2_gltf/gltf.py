@@ -16,6 +16,7 @@ from .binary import align
 from .errors import ConversionError, ParseError
 from .ge import DecodedPrimitive, decode_display_list, quantize_weights
 from .hgar import HgarArchive, HgarEntry
+from .hgmn import Hgmn, HgmnChannel, HgmnKeyframe
 from .hgms import Hgms, HgmsMaterial, HgmsMesh
 from .hgob import Hgob
 from .hgpt import HgptImage
@@ -45,6 +46,8 @@ class ModelStats:
     triangles: int = 0
     bones: int = 0
     textures: int = 0
+    animations: int = 0
+    animation_channels: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -55,6 +58,8 @@ class ModelStats:
             "triangles": self.triangles,
             "bones": self.bones,
             "textures": self.textures,
+            "animations": self.animations,
+            "animationChannels": self.animation_channels,
         }
 
 
@@ -76,6 +81,7 @@ class _Builder:
     materials: list[dict[str, Any]] = field(default_factory=list)
     images: list[dict[str, Any]] = field(default_factory=list)
     textures: list[dict[str, Any]] = field(default_factory=list)
+    animations: list[dict[str, Any]] = field(default_factory=list)
     image_payloads: list[tuple[str, bytes]] = field(default_factory=list)
 
     def add_bytes(self, payload: bytes, *, target: int | None = None) -> int:
@@ -99,7 +105,7 @@ class _Builder:
         *,
         component_type: int,
         accessor_type: str,
-        target: int,
+        target: int | None,
         normalized: bool = False,
         include_bounds: bool = False,
     ) -> int:
@@ -143,6 +149,7 @@ class _Builder:
             ("skins", self.skins),
             ("images", self.images),
             ("textures", self.textures),
+            ("animations", self.animations),
         ):
             if value:
                 document[key] = value
@@ -159,6 +166,8 @@ def export_hob(
     output_format: str,
     skip_unsupported: bool,
     native_coordinates: bool,
+    animation_entry: HgarEntry | None = None,
+    animation_fps: float = 30.0,
 ) -> ExportResult:
     if hob_entry.signature != b"HGOB":
         raise ParseError("selected member is not HGOB", resource=hob_entry.name, offset=0)
@@ -172,7 +181,6 @@ def export_hob(
     for node in hob.nodes:
         gltf_node: dict[str, Any] = {
             "name": node.name,
-            "matrix": _matrix_values(convert_matrix(_local_for_node(node), native_coordinates)),
             "extras": {
                 "nge2": {
                     "objectId": f"0x{node.object_id:08X}",
@@ -182,6 +190,15 @@ def export_hob(
                 }
             },
         }
+        if animation_entry is None:
+            gltf_node["matrix"] = _matrix_values(
+                convert_matrix(_local_for_node(node), native_coordinates)
+            )
+        else:
+            translation, rotation, scale = _converted_trs(node, native_coordinates)
+            gltf_node["translation"] = translation
+            gltf_node["rotation"] = rotation
+            gltf_node["scale"] = scale
         if node.children:
             gltf_node["children"] = list(node.children)
         builder.nodes.append(gltf_node)
@@ -219,8 +236,265 @@ def export_hob(
     roots = [index for index, node in enumerate(hob.nodes) if node.parent_index is None]
     if not roots:
         raise ParseError("HGOB has no scene root", resource=hob_entry.name)
+    if animation_entry is not None:
+        stats.animation_channels = _add_hgmn_animation(
+            builder,
+            hob,
+            animation_entry,
+            animation_fps=animation_fps,
+            native_coordinates=native_coordinates,
+            warnings=warnings,
+        )
+        stats.animations = int(stats.animation_channels > 0)
     _write_document(builder, roots, output_path, output_format)
     return ExportResult([str(output_path)], stats, warnings)
+
+
+def _add_hgmn_animation(
+    builder: _Builder,
+    hob: Hgob,
+    entry: HgarEntry,
+    *,
+    animation_fps: float,
+    native_coordinates: bool,
+    warnings: list[dict[str, Any]],
+) -> int:
+    if not np.isfinite(animation_fps) or animation_fps <= 0:
+        raise ParseError("animation FPS must be finite and positive", resource=entry.name)
+    motion = Hgmn.parse(entry.data, resource=entry.name)
+    nodes_by_id = {node.object_id: index for index, node in enumerate(hob.nodes)}
+    samplers: list[dict[str, Any]] = []
+    channels: list[dict[str, Any]] = []
+    unsupported: dict[int, int] = {}
+    unmatched: list[str] = []
+
+    for target in motion.targets:
+        node_index = nodes_by_id.get(target.object_id)
+        if node_index is None:
+            if any(channel.primary for channel in target.channels):
+                unmatched.append(target.name)
+            continue
+        if target.time_scale <= 0:
+            warnings.append(
+                _warning(
+                    entry.name,
+                    target.offset + 6,
+                    f"skipped {target.name} with non-positive time scale",
+                )
+            )
+            continue
+        modifier_opcodes = {
+            channel.opcode
+            for channel in target.channels
+            if channel.primary and channel.opcode in (2, 3)
+        }
+        for channel in target.channels:
+            if not channel.primary:
+                continue
+            path = _animation_path(channel)
+            if path is None:
+                unsupported[channel.opcode] = unsupported.get(channel.opcode, 0) + 1
+                continue
+            if channel.kind == "translation_i16" and modifier_opcodes:
+                warnings.append(
+                    _warning(
+                        entry.name,
+                        channel.offset,
+                        f"skipped {target.name} quantized translation with dynamic base/scale",
+                    )
+                )
+                continue
+            if channel.undecoded_tail:
+                warnings.append(
+                    _warning(
+                        entry.name,
+                        channel.offset,
+                        f"skipped {target.name} opcode 0x{channel.opcode:02X} with "
+                        f"{len(channel.undecoded_tail)} undecoded bytes",
+                    )
+                )
+                continue
+            keyframes = _collapse_keyframes(channel.keyframes)
+            if not keyframes:
+                continue
+            seconds_per_frame = 2048.0 / (animation_fps * target.time_scale)
+            times = np.asarray(
+                [keyframe.frame * seconds_per_frame for keyframe in keyframes], dtype=np.float32
+            )
+            if len(times) > 1 and np.any(np.diff(times) <= 0):
+                warnings.append(
+                    _warning(
+                        entry.name,
+                        channel.offset,
+                        f"skipped non-monotonic {target.name} track",
+                    )
+                )
+                continue
+            values, interpolation = _animation_values(
+                channel,
+                keyframes,
+                times,
+                native_coordinates=native_coordinates,
+            )
+            input_accessor = builder.add_accessor(
+                times,
+                component_type=FLOAT,
+                accessor_type="SCALAR",
+                target=None,
+                include_bounds=True,
+            )
+            output_accessor = builder.add_accessor(
+                values,
+                component_type=FLOAT,
+                accessor_type="VEC4" if path == "rotation" else "VEC3",
+                target=None,
+            )
+            sampler_index = len(samplers)
+            samplers.append(
+                {
+                    "input": input_accessor,
+                    "output": output_accessor,
+                    "interpolation": interpolation,
+                }
+            )
+            channels.append(
+                {
+                    "sampler": sampler_index,
+                    "target": {"node": node_index, "path": path},
+                    "extras": {
+                        "nge2": {
+                            "opcode": channel.opcode,
+                            "sourceOffset": channel.offset,
+                            "targetId": f"0x{target.object_id:08X}",
+                            "timeScale": target.time_scale,
+                        }
+                    },
+                }
+            )
+
+    for opcode, count in sorted(unsupported.items()):
+        warnings.append(
+            {
+                "message": f"preserved but did not export {count} "
+                f"primary opcode 0x{opcode:02X} channels",
+                "resource": entry.name,
+            }
+        )
+    if unmatched:
+        warnings.append(
+            {
+                "message": f"animation has {len(unmatched)} targets absent from HGOB: "
+                + ", ".join(unmatched[:12]),
+                "resource": entry.name,
+            }
+        )
+    if channels:
+        builder.animations.append(
+            {
+                "name": Path(entry.name).stem,
+                "samplers": samplers,
+                "channels": channels,
+                "extras": {
+                    "nge2": {
+                        "resourceKey": f"0x{entry.resource_key:08X}",
+                        "flags": motion.flags,
+                        "sourceFps": animation_fps,
+                    }
+                },
+            }
+        )
+    return len(channels)
+
+
+def _animation_path(channel: HgmnChannel) -> str | None:
+    if channel.kind in ("translation_i16", "translation_f32", "translation_cubic_f32"):
+        return "translation"
+    if channel.kind in ("rotation_i16", "rotation_f32"):
+        return "rotation"
+    if channel.kind in ("scale_i16", "scale_f32"):
+        return "scale"
+    return None
+
+
+def _collapse_keyframes(keyframes: tuple[HgmnKeyframe, ...]) -> tuple[HgmnKeyframe, ...]:
+    collapsed: list[HgmnKeyframe] = []
+    for keyframe in keyframes:
+        if collapsed and collapsed[-1].frame == keyframe.frame:
+            collapsed[-1] = keyframe
+        else:
+            collapsed.append(keyframe)
+    return tuple(collapsed)
+
+
+def _animation_values(
+    channel: HgmnChannel,
+    keyframes: tuple[HgmnKeyframe, ...],
+    times: np.ndarray,
+    *,
+    native_coordinates: bool,
+) -> tuple[np.ndarray, str]:
+    path = _animation_path(channel)
+    if path == "rotation":
+        values = np.asarray(
+            [_convert_rotation(keyframe.value, native_coordinates) for keyframe in keyframes],
+            dtype=np.float32,
+        )
+        for index in range(1, len(values)):
+            if float(np.dot(values[index - 1], values[index])) < 0:
+                values[index] *= -1
+        return values, "LINEAR"
+    if path == "scale":
+        return np.asarray([keyframe.value for keyframe in keyframes], dtype=np.float32), "LINEAR"
+
+    values = np.asarray(
+        [_convert_translation(keyframe.value, native_coordinates) for keyframe in keyframes],
+        dtype=np.float32,
+    )
+    if channel.kind != "translation_cubic_f32":
+        return values, "LINEAR"
+    cubic = np.zeros((len(keyframes), 3, 3), dtype=np.float32)
+    cubic[:, 1, :] = values
+    for index, keyframe in enumerate(keyframes):
+        if index > 0 and keyframe.in_control is not None:
+            duration = float(times[index] - times[index - 1])
+            control = np.asarray(
+                _convert_translation(keyframe.in_control, native_coordinates), dtype=np.float32
+            )
+            cubic[index, 0, :] = 3.0 * (values[index] - control) / duration
+        if index + 1 < len(keyframes) and keyframe.out_control is not None:
+            duration = float(times[index + 1] - times[index])
+            control = np.asarray(
+                _convert_translation(keyframe.out_control, native_coordinates), dtype=np.float32
+            )
+            cubic[index, 2, :] = 3.0 * (control - values[index]) / duration
+    return cubic.reshape(-1, 3), "CUBICSPLINE"
+
+
+def _convert_translation(values: tuple[float, ...], native: bool) -> tuple[float, float, float]:
+    x, y, z = values
+    return (x, y, z if native else -z)
+
+
+def _convert_rotation(values: tuple[float, ...], native: bool) -> tuple[float, float, float, float]:
+    x, y, z, w = values
+    return (x, y, z, w) if native else (-x, -y, z, w)
+
+
+def _converted_trs(node: object, native: bool) -> tuple[list[float], list[float], list[float]]:
+    return (
+        list(_convert_translation(node.translation, native)),
+        list(_convert_rotation(node.rotation, native)),
+        list(node.scale),
+    )
+
+
+def _warning(resource: str, offset: int, message: str) -> dict[str, Any]:
+    return {
+        "message": message,
+        "resource": resource,
+        "offset": offset,
+        "offsetHex": f"0x{offset:X}",
+    }
 
 
 def _attach_hgms(

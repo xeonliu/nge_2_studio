@@ -4,13 +4,15 @@ import numpy as np
 import pytest
 
 from nge2_gltf.ge import VertexFormat, quantize_weights
+from nge2_gltf.gltf import _animation_values
 from nge2_gltf.hgar import HgarArchive
+from nge2_gltf.hgmn import Hgmn, HgmnChannel, HgmnKeyframe
 from nge2_gltf.hgms import Hgms
 from nge2_gltf.hgob import Hgob
 from nge2_gltf.hgpt import HgptImage
 from nge2_gltf.transforms import inverse_bind_matrices, local_matrix
 
-from .fixtures import make_hgar, make_hgms, make_hgob, make_hgpt
+from .fixtures import make_hgar, make_hgmn, make_hgms, make_hgob, make_hgpt
 
 
 @pytest.mark.parametrize("version", [1, 3])
@@ -44,6 +46,67 @@ def test_hgob_null_shadow_model_sentinel_is_not_a_resource_reference() -> None:
     node = _object(b"SHDW", b"MO", [(0x28, b"\xff\x0f\x00\x00")])
     hob = Hgob.parse(b"HGOB\x01\x00\x08\x00" + node)
     assert hob.nodes[0].hms_resource_key is None
+
+
+@pytest.mark.parametrize("delta_offsets", [False, True])
+def test_hgmn_targets_and_confirmed_trs_channels(delta_offsets: bool) -> None:
+    motion = Hgmn.parse(make_hgmn(delta_offsets=delta_offsets))
+    assert motion.flags == (0x80 if delta_offsets else 0)
+    assert motion.primary_channel_count == 2
+    assert len(motion.targets) == 1
+    target = motion.targets[0]
+    assert target.name == "ROOT"
+    assert target.duration == 10
+    assert target.time_scale == 2048
+    assert [channel.kind for channel in target.channels] == ["translation_f32", "rotation_i16"]
+    assert target.channels[0].keyframes[-1].value == (1.0, 2.0, 3.0)
+    assert target.channels[1].keyframes[-1].value[2] == pytest.approx(0.5, abs=1e-4)
+    assert not target.channels[0].undecoded_tail
+
+
+def test_hgmn_bezier_controls_convert_to_gltf_cubic_tangents() -> None:
+    keyframes = (
+        HgmnKeyframe(
+            0,
+            (0.0, 0.0, 0.0),
+            in_control=(0.0, 0.0, 0.0),
+            out_control=(1.0, 0.0, 0.0),
+        ),
+        HgmnKeyframe(
+            2,
+            (4.0, 0.0, 0.0),
+            in_control=(3.0, 0.0, 0.0),
+            out_control=(4.0, 0.0, 0.0),
+        ),
+    )
+    channel = HgmnChannel(
+        offset=0,
+        opcode=16,
+        parameter=0,
+        primary=True,
+        raw=b"",
+        kind="translation_cubic_f32",
+        keyframes=keyframes,
+        undecoded_tail=b"",
+    )
+    values, interpolation = _animation_values(
+        channel,
+        keyframes,
+        np.asarray([0.0, 2.0], dtype=np.float32),
+        native_coordinates=True,
+    )
+    assert interpolation == "CUBICSPLINE"
+    np.testing.assert_allclose(
+        values,
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [1.5, 0.0, 0.0],
+            [1.5, 0.0, 0.0],
+            [4.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ],
+    )
 
 
 def test_hgms_tables_material_bones_and_palette() -> None:

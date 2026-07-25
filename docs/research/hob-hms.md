@@ -271,6 +271,99 @@ Large archives may also contain duplicate typed resource keys. References are
 resolved by typed key and expected signature; identical duplicate HPT data is
 safe to coalesce, while different candidates remain ambiguous.
 
+## HGMN animation data
+
+### Container and targets
+
+The loader at `0x0887db18` confirms this top-level layout:
+
+```c
+struct HgmnHeader {
+    char magic[4];                    // "HGMN"
+    uint8_t target_count;
+    uint8_t flags;                    // bit 7 selects delta target offsets
+    uint16_t primary_channel_count;
+    uint16_t target_offsets[target_count];
+};
+```
+
+When `flags & 0x80` is clear, target offsets are absolute from the HGMN start.
+When it is set, each entry is added to the preceding target start; the first
+entry therefore spans the header and its alignment padding. Both `0x80` and
+`0x81` occur in real files. Each target block begins with:
+
+```c
+struct HgmnTarget {
+    uint32_t object_id;               // HGOB FourCC, or zero for a script target
+    uint16_t duration;
+    int16_t time_scale;
+    uint8_t primary_channel_count;
+    uint8_t event_channel_count;
+    uint16_t channel_offsets[primary_channel_count + event_channel_count];
+};
+```
+
+Channel offsets are relative to the target block and strictly ordered. A
+channel begins with an opcode byte and a second control/length byte. Primary
+channels are evaluated every motion update. Event channels go through a
+different loader path, where the second byte participates in event-payload
+handling; they must not be decoded as TRS merely because their opcode number
+matches a transform handler.
+
+Target IDs directly match HGOB object IDs. The 56 targets in real
+`f014_bed.hmn`, for example, all exist in `misato00.hob`; targets include
+`BIP1`, `PELV`, `SPIN`, `HEAD`, limbs and finger nodes. Target zero is used by
+small script motions such as `think_ku.hmn` and does not identify a skeleton
+node.
+
+### Confirmed transform channels
+
+The built-in opcode table at `0x08a2f9bc` and its handlers confirm these
+transform encodings. Each key record starts with an `int16_t` frame number.
+
+| Opcode | Record | Result/interpolation |
+| --- | --- | --- |
+| `0x01` | frame + `int16_t[3]` | translation using runtime base/scale state |
+| `0x02` | frame + `float[3]` | updates translation base state |
+| `0x03` | frame + `float` | updates translation scale state |
+| `0x04` | frame + `int16_t[4]` | quaternion divided by 32768, shortest-path interpolation |
+| `0x05` | frame + `int16_t[3]` | scale divided by 4096 |
+| `0x0c` | frame + `float[3]` | linear translation |
+| `0x0d` | frame + `float[3]` | linear scale |
+| `0x0e` | frame + `float[4]` | float quaternion interpolation |
+| `0x10` | frame + three `float[3]` values | cubic translation: value, incoming control, outgoing control |
+
+Opcode `0x10` uses a cubic Bezier formula in `0x0887acd0`. Its controls must be
+converted to time derivatives before writing glTF CUBICSPLINE output. HGMN TRS
+values are complete local node transforms, not deltas from the HGOB bind pose.
+This is visible both in the handlers and in real first-frame values matching
+the scale and orientation of their corresponding HGOB local transforms.
+
+Motion time is 16.16 fixed point. `0x0887b418` advances it by
+`32 * time_scale` per engine update, so the common `time_scale == 2048`
+advances one source frame. No real-world update frequency is present in HGMN;
+an interchange exporter must supply or assume it.
+
+### Corpus validation
+
+A read-only scan of all local `ULJS00061` resources found 63 HAR archives and
+8,726 HGMN members. Every member parses with the confirmed target/channel
+layout. Flags were `0x80` in 5,106 members and `0x81` in 3,620. The built-in TRS
+opcodes observed on primary channels were `0x04`, `0x0c`, `0x0d`, and `0x10`;
+other primary opcodes are event, visibility, target-link or class-specific
+behavior and remain preserved as raw channels. Across 110,341 decoded TRS
+tracks, no frame sequence decreased, no frame was negative, and no quaternion
+key was zero length.
+
+One `f055_bed.hmn` translation channel contains a ten-byte partial tail before
+the next event channel. The game loader relies on runtime traversal rather than
+an explicit record count. The research parser preserves this tail and the glTF
+exporter skips that one channel instead of silently inventing a keyframe.
+
+The real `misato00.hob` plus `f014_bed.hmn` export produced 39 glTF TRS
+channels. Blender 5.2 imported the action and rendered connected, non-exploded
+standing, lying and return poses with stable textures.
+
 ## Executable evidence
 
 The following functions in the analyzed PSP executable anchor the current
@@ -289,6 +382,9 @@ interpretation. Addresses refer to the loaded IDA database:
 | `0x08883cc8` | Builds the eight-slot bone palette and executes the display list |
 | `0x08883a64` | Fixes up HGMS texture resource references |
 | `0x0887db18` | Loads HGMN animation data |
+| `0x0887b418` | Evaluates primary channels and advances 16.16 motion time |
+| `0x0887a6bc` | Evaluates quantized quaternion channel `0x04` |
+| `0x0887acd0` | Evaluates cubic Bezier translation channel `0x10` |
 
 The resource namespaces above are runtime identifier tags. They are not file
 magic values; the actual inner signatures remain `HGOB` and `HGMS`.
@@ -354,7 +450,7 @@ Expected preservation levels are:
 | UVs, normals and vertex colors | High |
 | HPT image content | High; decoding already exists |
 | Hierarchy and skin weights | High, after bind-pose validation |
-| HGMN animation | Likely feasible; format work remains |
+| Confirmed HGMN TRS animation | High; custom/event channels are omitted |
 | PSP material/effect parity | Partial; fixed-function effects need approximation |
 
 ## Open questions
@@ -370,7 +466,7 @@ converter:
    scenes; current character and door results use left-handed Y-up.
 5. Check for indexed, non-strip or less common VTYPE variants in more archives.
 6. Confirm bind-pose and inverse-bind-matrix conventions with a skinned export.
-7. Reverse all HGMN track encodings and interpolation modes.
+7. Reverse class-specific HGMN opcodes and event/script channel payloads.
 8. Identify the exact meanings of HGOB opcodes `0x12` and `0x19`.
 
 Until these questions are resolved, readers and parsers should preserve unknown

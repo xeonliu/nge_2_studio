@@ -10,7 +10,7 @@ from nge2_gltf.cli import main
 from nge2_gltf.gltf import _Builder, _material
 from nge2_gltf.hgms import HgmsMaterial
 
-from .fixtures import make_archive, make_hgar, make_hgms, make_hgob, make_hgpt
+from .fixtures import make_archive, make_hgar, make_hgmn, make_hgms, make_hgob, make_hgpt
 
 
 def test_material_cache_includes_resolved_hgms_texture() -> None:
@@ -42,6 +42,8 @@ def test_minimal_archive_exports_embedded_skinned_glb(tmp_path) -> None:
         "triangles": 1,
         "bones": 1,
         "textures": 1,
+        "animations": 0,
+        "animationChannels": 0,
     }
     glb = output / item["output"]
     model = GLTF2().load_binary(glb)
@@ -76,6 +78,39 @@ def test_minimal_archive_exports_embedded_skinned_glb(tmp_path) -> None:
     ).reshape(-1, 2)
     np.testing.assert_allclose(uv.min(axis=0), [0.0, 0.0])
     np.testing.assert_allclose(uv.max(axis=0), [1.0, 1.0])
+
+
+def test_external_hgmn_exports_animation_channels(tmp_path) -> None:
+    source = tmp_path / "fixture.har"
+    motion_source = tmp_path / "motion.har"
+    output = tmp_path / "out"
+    source.write_bytes(make_hgar())
+    motion_source.write_bytes(
+        make_archive([("move.hmn", 0x12000001, make_hgmn(), False)])
+    )
+    result = main(
+        [
+            str(source),
+            "--output",
+            str(output),
+            "--animation-har",
+            str(motion_source),
+            "--hmn",
+            "move.hmn",
+        ]
+    )
+    assert result == 0
+    report = json.loads((output / "conversion-report.json").read_text())
+    item = report["models"][0]
+    assert item["stats"]["animations"] == 1
+    assert item["stats"]["animationChannels"] == 2
+    model = GLTF2().load_binary(output / item["output"])
+    assert len(model.animations) == 1
+    assert len(model.animations[0].channels) == 2
+    assert model.nodes[0].matrix is None
+    assert model.nodes[0].translation == [0.0, 0.0, -0.0]
+    paths = {channel.target.path for channel in model.animations[0].channels}
+    assert paths == {"translation", "rotation"}
 
 
 def test_model_failure_does_not_prevent_other_hob_and_report_is_written(tmp_path) -> None:

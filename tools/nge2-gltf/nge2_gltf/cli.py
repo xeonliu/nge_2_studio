@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import math
 import os
 import re
 import sys
@@ -25,6 +26,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--format", choices=("glb", "gltf"), default="glb")
     parser.add_argument("--skip-unsupported", action="store_true")
     parser.add_argument("--native-coordinates", action="store_true")
+    parser.add_argument("--animation-har", type=Path, help="HGAR containing the selected HGMN")
+    parser.add_argument("--hmn", help="HGMN member name, decoded ID, or typed resource key")
+    parser.add_argument(
+        "--animation-fps",
+        type=float,
+        default=30.0,
+        help="engine update rate used to convert HGMN frames to seconds (default: 30)",
+    )
     return parser
 
 
@@ -34,10 +43,15 @@ def main(argv: list[str] | None = None) -> int:
         "input": str(args.input),
         "format": args.format,
         "nativeCoordinates": args.native_coordinates,
+        "animationFps": args.animation_fps,
         "models": [],
         "summary": {"succeeded": 0, "failed": 0},
     }
     try:
+        if (args.animation_har is None) != (args.hmn is None):
+            raise ConversionError("--animation-har and --hmn must be used together")
+        if not math.isfinite(args.animation_fps) or args.animation_fps <= 0:
+            raise ConversionError("--animation-fps must be finite and positive")
         args.output.mkdir(parents=True, exist_ok=True)
         archive = HgarArchive.from_file(args.input)
         candidates = [entry for entry in archive.entries if entry.signature == b"HGOB"]
@@ -45,6 +59,29 @@ def main(argv: list[str] | None = None) -> int:
             candidates = _select(candidates, args.hob)
             if not candidates:
                 raise ConversionError(f"no HGOB matches {args.hob!r}")
+        animation_entry = None
+        if args.animation_har is not None:
+            animation_archive = HgarArchive.from_file(args.animation_har)
+            animation_candidates = _select(
+                [entry for entry in animation_archive.entries if entry.signature == b"HGMN"],
+                args.hmn,
+            )
+            if not animation_candidates:
+                raise ConversionError(f"no HGMN matches {args.hmn!r}")
+            if len(animation_candidates) != 1:
+                keys = ", ".join(
+                    f"0x{entry.resource_key:08X}" for entry in animation_candidates[:8]
+                )
+                raise ConversionError(
+                    f"HGMN selector {args.hmn!r} is ambiguous; use a resource key ({keys})"
+                )
+            animation_entry = animation_candidates[0]
+            report["animation"] = {
+                "archive": str(args.animation_har),
+                "name": animation_entry.name,
+                "resourceKey": f"0x{animation_entry.resource_key:08X}",
+                "decodedId": animation_entry.decoded_identifier,
+            }
     except ConversionError as error:
         report["archiveError"] = error.as_report()
         _write_report(args.output, report)
@@ -80,6 +117,8 @@ def main(argv: list[str] | None = None) -> int:
                 output_format=args.format,
                 skip_unsupported=args.skip_unsupported,
                 native_coordinates=args.native_coordinates,
+                animation_entry=animation_entry,
+                animation_fps=args.animation_fps,
             )
             item["status"] = "succeeded"
             item["stats"] = result.stats.as_dict()

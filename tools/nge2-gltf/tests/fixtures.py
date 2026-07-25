@@ -80,6 +80,26 @@ def make_hgpt(format_code: int = 0x8800) -> bytes:
     return bytes(data)
 
 
+def make_hgmn(*, delta_offsets: bool = True) -> bytes:
+    translation = bytearray((12, 0))
+    translation.extend(struct.pack("<h3f", 0, 0.0, 0.0, 0.0))
+    translation.extend(struct.pack("<h3f", 10, 1.0, 2.0, 3.0))
+    rotation = bytearray((4, 0))
+    rotation.extend(struct.pack("<5h", 0, 0, 0, 0, 32767))
+    rotation.extend(struct.pack("<5h", 10, 0, 0, 16384, 28378))
+    target_header_size = 14
+    rotation_offset = target_header_size + len(translation)
+    target = (
+        b"ROOT"
+        + struct.pack("<HhBB2H", 10, 2048, 2, 0, target_header_size, rotation_offset)
+        + translation
+        + rotation
+    )
+    target_offset = 12
+    flags = 0x80 if delta_offsets else 0
+    return b"HGMN" + struct.pack("<BBHHH", 1, flags, 2, target_offset, 0) + target
+
+
 def make_hgar(*, compressed_hms: bool = False, version: int = 1) -> bytes:
     return make_archive(
         [

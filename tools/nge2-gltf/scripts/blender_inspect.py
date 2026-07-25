@@ -113,7 +113,7 @@ def main() -> None:
             }
         )
 
-    report = {
+    report: dict[str, object] = {
         "input": str(args.input),
         "boundsMin": list(minimum),
         "boundsMax": list(maximum),
@@ -128,8 +128,14 @@ def main() -> None:
             }
             for image in bpy.data.images
         ],
+        "actions": [
+            {
+                "name": action.name,
+                "frameRange": list(action.frame_range),
+            }
+            for action in bpy.data.actions
+        ],
     }
-    (args.output / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_EEVEE"
@@ -215,6 +221,38 @@ def main() -> None:
         scale=size.z * 0.52,
         suffix="torso-front",
     )
+
+    animation_bounds: list[dict[str, object]] = []
+    if bpy.data.actions:
+        start = int(min(action.frame_range[0] for action in bpy.data.actions))
+        end = int(max(action.frame_range[1] for action in bpy.data.actions))
+        frames = sorted({start, (start + end) // 2, end})
+        for frame in frames:
+            scene.frame_set(frame)
+            frame_minimum, frame_maximum = world_bounds(meshes)
+            frame_center = (frame_minimum + frame_maximum) * 0.5
+            frame_size = frame_maximum - frame_minimum
+            animation_bounds.append(
+                {
+                    "frame": frame,
+                    "boundsMin": list(frame_minimum),
+                    "boundsMax": list(frame_maximum),
+                    "size": list(frame_size),
+                }
+            )
+            frame_scale = max(frame_size.z * 1.12, frame_size.x * 960 / 720 * 1.12)
+            render_view(
+                args.output,
+                camera,
+                frame_center,
+                frame_size,
+                axis="front",
+                target_z=frame_center.z,
+                scale=frame_scale,
+                suffix=f"animation-{frame:04d}",
+            )
+    report["animationBounds"] = animation_bounds
+    (args.output / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":
