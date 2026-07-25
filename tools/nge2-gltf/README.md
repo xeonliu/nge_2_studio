@@ -104,10 +104,13 @@ the requested HGOB/HGMS/HGPT candidates have identical data. PSP fixed-function
 render bits are retained but not interpreted beyond texture selection and
 transparency.
 
-The default 30 FPS is an export-time assumption, not a field recovered from
-HGMN. The executable advances 16.16 motion time by `32 * time_scale` on each
-engine update; the common `time_scale == 2048` advances exactly one source
-frame per update. Use `--animation-fps` when matching a captured game rate.
+The default 30 FPS matches the executable's main scene frame-rate mode, but is
+not a field recovered from HGMN. The executable advances 16.16 motion time by
+`32 * time_scale` on each logic update; the common `time_scale == 2048`
+advances exactly one source frame per update. Some UI and special-scene paths
+run at about 60 updates per second, so use `--animation-fps 60` when reproducing
+one of those paths. The complete runtime evidence and conversion formula are in
+[`docs/research/hgmn-animation-timing.md`](../../docs/research/hgmn-animation-timing.md).
 
 The default coordinate convention and UV orientation match the inspected
 character and static-door samples, but `--native-coordinates` remains available

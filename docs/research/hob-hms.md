@@ -341,8 +341,11 @@ the scale and orientation of their corresponding HGOB local transforms.
 
 Motion time is 16.16 fixed point. `0x0887b418` advances it by
 `32 * time_scale` per engine update, so the common `time_scale == 2048`
-advances one source frame. No real-world update frequency is present in HGMN;
-an interchange exporter must supply or assume it.
+advances one source frame. No real-world update frequency is present in HGMN.
+The main game path runs at approximately 30 logic updates per second while
+some UI and special-scene paths select approximately 60; see
+[HGMN animation timing](hgmn-animation-timing.md) for the executable dispatch
+chain and export formula.
 
 ### Corpus validation
 
