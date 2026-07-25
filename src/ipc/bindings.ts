@@ -86,13 +86,19 @@ export type EvsCommand = {
 	opcode: number,
 	opcodeHex: string,
 	name: string,
+	category: EvsCommandCategory,
+	description: string,
 	parameters: number[],
+	parameterNames: string[],
 	content: string | null,
+	options: string[],
 	contentBytes: number,
 	rawPayload: number[],
 	supported: boolean,
 	diagnostics: FormatDiagnostic[],
 };
+
+export type EvsCommandCategory = "dialogue" | "flow" | "visual" | "audio" | "choice" | "timing" | "event" | "extension" | "state" | "unknown";
 
 export type EvsCommandPage = {
 	page: Page<EvsCommand>,

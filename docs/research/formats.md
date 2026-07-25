@@ -18,6 +18,8 @@ the maintained parsers in the NGE2 translation project.
   to glTF 2.0/GLB and records unsupported or unknown data in a batch report.
 - EVS has an offset table. Each record has a two-byte opcode and two-byte body
   size. Unknown records are retained as raw payload and do not stop parsing.
+  See [EVS command research](evs-commands.md) for the runtime dispatcher,
+  confirmed opcode semantics and current unknowns.
 
 The preview is deliberately linear. It does not claim to emulate the game's
 conditional control flow or full script virtual machine.

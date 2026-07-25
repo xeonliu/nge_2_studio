@@ -40,14 +40,17 @@ export function InspectorPane() {
                 <dt>Opcode</dt><dd className="mono">{command.opcodeHex}</dd>
                 <dt>Offset</dt><dd className="mono">{formatHex(command.offset, 8)}</dd>
                 <dt>类型</dt><dd>{command.name}</dd>
+                <dt>类别</dt><dd><span className={`command-category ${command.category}`}>{command.category}</span></dd>
+                <dt>语义</dt><dd>{command.description}</dd>
               </dl>
               {command.parameters.length > 0 && (
                 <div className="parameter-list">
                   {command.parameters.map((parameter, index) => (
-                    <div key={index}><span>P{index}</span><code>{parameter} / {formatHex(parameter, 8)}</code></div>
+                    <div key={index}><span>{command.parameterNames[index] ?? `P${index}`}</span><code>{parameter} / {formatHex(parameter, 8)}</code></div>
                   ))}
                 </div>
               )}
+              {command.options.length > 0 && <ol className="command-options inspector-options">{command.options.map((option, index) => <li key={`${index}-${option}`}>{option}</li>)}</ol>}
             </section>
           )}
           {visual && (
@@ -98,4 +101,3 @@ export function InspectorPane() {
     </aside>
   );
 }
-

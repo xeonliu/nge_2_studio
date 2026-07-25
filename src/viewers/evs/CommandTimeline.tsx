@@ -1,4 +1,4 @@
-import { AlertCircle, GitBranch, Image, MessageSquare, Music, TerminalSquare } from "lucide-react";
+import { AlertCircle, Clock3, Flag, GitBranch, Image, ListChecks, MessageSquare, Music, Puzzle, TerminalSquare } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { EvsCommand } from "../../ipc/bindings";
 import { formatHex } from "../../shared/lib/format";
@@ -7,22 +7,29 @@ const ROW_HEIGHT = 36;
 const OVERSCAN = 8;
 
 function commandClass(command: EvsCommand) {
-  if (command.opcode === 1) return "say";
-  if ([0x8c, 0x8d, 0x8e].includes(command.opcode)) return "visual";
-  if (command.opcode === 0x95) return "audio";
-  if (command.name.includes("CONTROL")) return "control";
-  if (!command.supported) return "unknown";
-  return "command";
+  return command.supported ? command.category : "unknown";
 }
 
 function CommandIcon({ command }: { command: EvsCommand }) {
   const type = commandClass(command);
-  if (type === "say") return <MessageSquare size={14} />;
+  if (type === "dialogue") return <MessageSquare size={14} />;
+  if (type === "flow") return <GitBranch size={14} />;
   if (type === "visual") return <Image size={14} />;
   if (type === "audio") return <Music size={14} />;
-  if (type === "control") return <GitBranch size={14} />;
+  if (type === "choice") return <ListChecks size={14} />;
+  if (type === "timing") return <Clock3 size={14} />;
+  if (type === "event") return <Flag size={14} />;
+  if (type === "extension") return <Puzzle size={14} />;
   if (type === "unknown") return <AlertCircle size={14} />;
   return <TerminalSquare size={14} />;
+}
+
+function commandSummary(command: EvsCommand) {
+  if (command.options.length) return command.options.join(" / ");
+  if (command.content) return command.content;
+  return command.parameters
+    .map((value, index) => `${command.parameterNames[index] ?? `P${index}`}=${formatHex(value, 4)}`)
+    .join("  ");
 }
 
 export function CommandTimeline({ commands, selectedIndex, onSelect }: { commands: EvsCommand[]; selectedIndex: number | null; onSelect: (index: number) => void }) {
@@ -35,7 +42,7 @@ export function CommandTimeline({ commands, selectedIndex, onSelect }: { command
   }, [commands.length, scrollTop]);
   return (
     <section className="command-timeline">
-      <div className="timeline-header"><strong>Command Timeline</strong><span>{commands.length} entries</span><span className="timeline-legend"><i className="say" />SAY<i className="visual" />VISUAL<i className="audio" />AUDIO<i className="unknown" />UNKNOWN</span></div>
+      <div className="timeline-header"><strong>Command Timeline</strong><span>{commands.length} entries</span><span className="timeline-legend"><i className="dialogue" />DIALOGUE<i className="visual" />VISUAL<i className="audio" />AUDIO<i className="choice" />CHOICE<i className="unknown" />UNKNOWN</span></div>
       <div className="timeline-scroll" style={{ height: viewportHeight }} onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}>
         <div className="timeline-spacer" style={{ height: commands.length * ROW_HEIGHT }}>
           {commands.slice(range.start, range.end).map((command, localIndex) => {
@@ -51,7 +58,7 @@ export function CommandTimeline({ commands, selectedIndex, onSelect }: { command
                 <span className="timeline-index">{String(command.index).padStart(4, "0")}</span>
                 <span className="timeline-opcode"><CommandIcon command={command} /><code>{command.opcodeHex}</code></span>
                 <strong>{command.name}</strong>
-                <span className="timeline-summary">{command.content ?? command.parameters.map((value) => formatHex(value, 4)).join("  ")}</span>
+                <span className="timeline-summary">{commandSummary(command)}</span>
                 <code className="timeline-offset">@{command.offset.toString(16).toUpperCase().padStart(8, "0")}</code>
               </button>
             );
@@ -61,4 +68,3 @@ export function CommandTimeline({ commands, selectedIndex, onSelect }: { command
     </section>
   );
 }
-

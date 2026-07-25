@@ -135,7 +135,10 @@ pub fn build_storyboard(
         match command.opcode {
             0x8c | 0x8d | 0x8e => {
                 let visual = resolve_visual(command, archive, archive_ref);
-                if matches!(visual.resolution, Resolution::Missing | Resolution::Unsupported) {
+                if matches!(
+                    visual.resolution,
+                    Resolution::Missing | Resolution::Unsupported
+                ) {
                     diagnostics.push(FormatDiagnostic {
                         severity: DiagnosticSeverity::Warning,
                         message: format!("无法关联视觉资源 {}", visual.requested),
@@ -180,7 +183,12 @@ fn resolve_visual(
     archive: &HgarArchive,
     archive_ref: &ResourceRef,
 ) -> VisualReference {
-    let requested = command.content.clone().unwrap_or_default().trim().to_owned();
+    let requested = command
+        .content
+        .clone()
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
     if requested.is_empty() {
         return VisualReference {
             command_index: command.index,
@@ -194,7 +202,8 @@ fn resolve_visual(
     let exact = archive.entries.iter().find(|entry| {
         candidate_names(entry).iter().any(|candidate| {
             candidate.eq_ignore_ascii_case(&requested)
-                || strip_known_extension(candidate).eq_ignore_ascii_case(strip_known_extension(&requested))
+                || strip_known_extension(candidate)
+                    .eq_ignore_ascii_case(strip_known_extension(&requested))
         })
     });
     if let Some(entry) = exact {
@@ -207,7 +216,10 @@ fn resolve_visual(
         };
     }
 
-    if VARIABLE_TOKENS.iter().any(|token| requested.contains(token)) {
+    if VARIABLE_TOKENS
+        .iter()
+        .any(|token| requested.contains(token))
+    {
         let candidates = archive
             .entries
             .iter()
@@ -323,9 +335,14 @@ fn variable_match(pattern: &str, candidate: &str) -> bool {
     while pattern_index < pattern.len() {
         let is_variable = pattern[pattern_index] == b'$'
             && pattern_index + 1 < pattern.len()
-            && matches!(pattern[pattern_index + 1], b'w' | b'x' | b'y' | b'd' | b'e' | b'f');
+            && matches!(
+                pattern[pattern_index + 1],
+                b'w' | b'x' | b'y' | b'd' | b'e' | b'f'
+            );
         if is_variable {
-            if candidate_index >= candidate.len() || !candidate[candidate_index].is_ascii_alphanumeric() {
+            if candidate_index >= candidate.len()
+                || !candidate[candidate_index].is_ascii_alphanumeric()
+            {
                 return false;
             }
             pattern_index += 2;
@@ -377,6 +394,7 @@ fn speaker_name(id: u32) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nge2_formats::evs::{opcode_category, opcode_description, parameter_names};
     use nge2_formats::hgar::HgarEntry;
 
     fn archive(names: &[&str]) -> HgarArchive {
@@ -417,8 +435,15 @@ mod tests {
             opcode: 0x8c,
             opcode_hex: "0x8C".into(),
             name: "VISUAL 0x8C".into(),
+            category: opcode_category(0x8c),
+            description: opcode_description(0x8c).into(),
             parameters: vec![0],
+            parameter_names: parameter_names(0x8c)
+                .iter()
+                .map(|name| (*name).into())
+                .collect(),
             content: Some(content.into()),
+            options: Vec::new(),
             content_bytes: content.len() as u32,
             raw_payload: Vec::new(),
             supported: true,
@@ -433,8 +458,15 @@ mod tests {
             opcode: 0x01,
             opcode_hex: "0x01".into(),
             name: "SAY".into(),
+            category: opcode_category(0x01),
+            description: opcode_description(0x01).into(),
             parameters: vec![1, 1, voice_id],
+            parameter_names: parameter_names(0x01)
+                .iter()
+                .map(|name| (*name).into())
+                .collect(),
             content: Some(content.into()),
+            options: Vec::new(),
             content_bytes: content.len() as u32,
             raw_payload: Vec::new(),
             supported: true,
@@ -448,7 +480,9 @@ mod tests {
         let exact = resolve_visual(&visual("bg_1"), &archive, &resource());
         assert!(matches!(exact.resolution, Resolution::Exact(_)));
         let variants = resolve_visual(&visual("bg_$w"), &archive, &resource());
-        assert!(matches!(variants.resolution, Resolution::Variant(ref values) if values.len() == 2));
+        assert!(
+            matches!(variants.resolution, Resolution::Variant(ref values) if values.len() == 2)
+        );
     }
 
     #[test]
@@ -465,8 +499,14 @@ mod tests {
         assert_eq!(
             frame.audio_tracks,
             [
-                DialogueAudioTrack { page_index: 0, voice_id: Some(28_439) },
-                DialogueAudioTrack { page_index: 1, voice_id: Some(28_440) },
+                DialogueAudioTrack {
+                    page_index: 0,
+                    voice_id: Some(28_439)
+                },
+                DialogueAudioTrack {
+                    page_index: 1,
+                    voice_id: Some(28_440)
+                },
             ]
         );
     }
@@ -477,9 +517,18 @@ mod tests {
         assert_eq!(
             frame.audio_tracks,
             [
-                DialogueAudioTrack { page_index: 0, voice_id: Some(32_026) },
-                DialogueAudioTrack { page_index: 1, voice_id: None },
-                DialogueAudioTrack { page_index: 2, voice_id: Some(32_028) },
+                DialogueAudioTrack {
+                    page_index: 0,
+                    voice_id: Some(32_026)
+                },
+                DialogueAudioTrack {
+                    page_index: 1,
+                    voice_id: None
+                },
+                DialogueAudioTrack {
+                    page_index: 2,
+                    voice_id: Some(32_028)
+                },
             ]
         );
     }

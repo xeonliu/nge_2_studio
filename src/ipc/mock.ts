@@ -2,6 +2,7 @@ import type { StudioIpc } from "./client";
 import type {
   DialogueFrame,
   EvsCommand,
+  EvsCommandCategory,
   FormatDiagnostic,
   HgarEntry,
   IsoEntry,
@@ -68,6 +69,37 @@ function diagnostic(message: string, offset: number, severity: "info" | "warning
   return { message, offset, severity };
 }
 
+function commandCategory(opcode: number): EvsCommandCategory {
+  if (opcode >= 0x01 && opcode <= 0x0a) return "dialogue";
+  if (opcode >= 0x14 && opcode <= 0x56) return "flow";
+  if (opcode >= 0x7b && opcode <= 0x86) return "event";
+  if (opcode === 0x87) return "extension";
+  if (opcode >= 0x8c && opcode <= 0x8f) return "visual";
+  if (opcode === 0x90) return "timing";
+  if (opcode >= 0x91 && opcode <= 0x94) return "audio";
+  if (opcode === 0x95) return "choice";
+  return opcode === 0xfe ? "unknown" : "state";
+}
+
+const parameterLabels: Record<number, string[]> = {
+  0x01: ["speakerFlags", "expressionFlags", "voiceId"],
+  0x87: ["extensionId"],
+  0x8c: ["transitionFlags"],
+  0x8d: ["transitionFlags"],
+  0x8e: ["displayFlags"],
+  0x90: ["milliseconds"],
+};
+
+const commandDescriptions: Record<number, string> = {
+  0x01: "显示对话；参数控制角色/头像、表情和首个语音 ID",
+  0x87: "调用按 ID 分派的游戏专用扩展",
+  0x8c: "替换背景层资源；空名称会清除背景",
+  0x8d: "替换图片/CG 层资源；空名称会清除图片",
+  0x8e: "替换 telop 覆盖层资源",
+  0x90: "等待指定毫秒数；运行时按 60 Hz 换算为帧数",
+  0x95: "显示选择菜单；正文以全角斜线分隔，最多四项",
+};
+
 function command(index: number, opcode: number, name: string, parameters: number[] = [], content: string | null = null): EvsCommand {
   const offset = 64 + index * 24;
   return {
@@ -76,8 +108,12 @@ function command(index: number, opcode: number, name: string, parameters: number
     opcode,
     opcodeHex: `0x${opcode.toString(16).toUpperCase().padStart(2, "0")}`,
     name,
+    category: commandCategory(opcode),
+    description: commandDescriptions[opcode] ?? (opcode === 0xfe ? "分派表中没有可安全解析的参数布局" : "运行时参数长度已确认，具体游戏状态语义尚未命名"),
     parameters,
+    parameterNames: parameterLabels[opcode] ?? [],
     content,
+    options: opcode === 0x95 && content ? content.split("／").filter(Boolean) : [],
     contentBytes: content ? new TextEncoder().encode(content).length : 0,
     rawPayload: [...parameters.flatMap((value) => [value & 255, (value >> 8) & 255, (value >> 16) & 255, (value >> 24) & 255]), ...(content ? [...new TextEncoder().encode(content), 0] : [])],
     supported: opcode !== 0xfe,
@@ -86,26 +122,26 @@ function command(index: number, opcode: number, name: string, parameters: number
 }
 
 const commands: EvsCommand[] = [
-  command(0, 0x8c, "VISUAL 0x8C", [0], "station"),
-  command(1, 0x90, "WAIT", [300]),
-  command(2, 0x01, "SAY", [1, 5, 1042], "……这里是第三新东京市。"),
-  command(3, 0x8d, "VISUAL 0x8D", [1], "shinji_1"),
-  command(4, 0x01, "SAY", [1, 7, 1043], "父亲为什么要叫我来？▽已经三年没见了。"),
-  command(5, 0x95, "AUDIO", [2201], "se_station"),
+  command(0, 0x8c, "SET_BACKGROUND", [0], "station"),
+  command(1, 0x90, "WAIT_MS", [300]),
+  command(2, 0x01, "DIALOGUE", [1, 5, 1042], "……这里是第三新东京市。"),
+  command(3, 0x8d, "SET_PICTURE", [1], "shinji_1"),
+  command(4, 0x01, "DIALOGUE", [1, 7, 1043], "父亲为什么要叫我来？▽已经三年没见了。"),
+  command(5, 0x95, "CHOICE", [], "再说明一次／再实践一次／今天就到此为止"),
   command(6, 0x87, "EXTENSION", [637]),
-  command(7, 0x8e, "VISUAL 0x8E", [0], "scn_$w"),
-  command(8, 0x01, "SAY", [0x1001, 3, 0x4000], "风越来越大了……"),
-  command(9, 0x69, "CONTROL", []),
+  command(7, 0x8e, "SET_TELOP", [0], "scn_$w"),
+  command(8, 0x01, "DIALOGUE", [0x1001, 3, 0x4000], "风越来越大了……"),
+  command(9, 0x69, "COMMAND", []),
   command(10, 0x20, "COMMAND", [1, 0, 12, 4]),
-  command(11, 0x90, "WAIT", [800]),
-  command(12, 0x01, "SAY", [4, 2, 1050], "真嗣君，听得到吗？"),
-  command(13, 0x8c, "VISUAL 0x8C", [0], "missing_cut"),
+  command(11, 0x90, "WAIT_MS", [800]),
+  command(12, 0x01, "DIALOGUE", [4, 2, 1050], "真嗣君，听得到吗？"),
+  command(13, 0x8c, "SET_BACKGROUND", [0], "missing_cut"),
   command(14, 0xfe, "UNKNOWN", [], null),
-  command(15, 0x01, "SAY", [1, 8, 1051], "这个声音是……葛城上尉？"),
-  command(16, 0x78, "CONTROL", [12, 0]),
-  command(17, 0x90, "WAIT", [240]),
-  command(18, 0x8d, "VISUAL 0x8D", [0], "shinji_1"),
-  command(19, 0x01, "SAY", [1, 5, 1052], "我明白了。"),
+  command(15, 0x01, "DIALOGUE", [1, 8, 1051], "这个声音是……葛城上尉？"),
+  command(16, 0x78, "COMMAND", [12, 0]),
+  command(17, 0x90, "WAIT_MS", [240]),
+  command(18, 0x8d, "SET_PICTURE", [0], "shinji_1"),
+  command(19, 0x01, "DIALOGUE", [1, 5, 1052], "我明白了。"),
 ];
 
 const exactStation: VisualReference = { commandIndex: 0, opcode: 0x8c, requested: "station", resolution: { status: "Exact", value: member(4) }, evidence: "在 EVS 所属 HGAR 内精确匹配文件名" };
