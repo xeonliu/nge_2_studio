@@ -14,6 +14,8 @@ the maintained parsers in the NGE2 translation project.
   GE mesh display lists, materials, texture references and skin palettes. See
   [HGOB/HGMS model format notes](hob-hms.md) for the current binary layouts,
   IDA evidence and proposed glTF conversion path.
+- The standalone research converter in `tools/nge2-gltf` exports these resources
+  to glTF 2.0/GLB and records unsupported or unknown data in a batch report.
 - EVS has an offset table. Each record has a two-byte opcode and two-byte body
   size. Unknown records are retained as raw payload and do not stop parsing.
 

@@ -203,9 +203,14 @@ standalone vertex and index table. The relevant command stream contains:
 | GE opcode | Command | Purpose |
 | --- | --- | --- |
 | `0x01` | `VADDR` | Select vertex data address |
+| `0x02` | `IADDR` | Select index data address |
 | `0x04` | `PRIM` | Draw a primitive and vertex count |
-| `0x0b` | `END` | End the display list |
+| `0x0b` | `RET` | Return from/end an embedded display list |
+| `0x0c` | `END` | End the display list |
+| `0x10` | `BASE` | Set the high address bits |
 | `0x12` | `VTYPE` | Describe packed vertex attributes |
+| `0x13` | `OFFSET_ADDR` | Set the relative address offset |
+| `0x14` | `ORIGIN` | Rebase addresses on the command-stream origin |
 
 All primitives inspected so far use PSP primitive type `4`,
 `GU_TRIANGLE_STRIP`. This is an observation, not a format restriction.
@@ -227,16 +232,44 @@ Observed skinned vertex types include:
 | ... | ... | ... |
 | `0x1c336` | 8 | `uint8_t[8]` |
 
-The exact normalization divisor for weight bytes still requires validation.
-An exporter should normalize the decoded weights again before writing glTF.
+The converter follows the GE normalized fixed-point rule: integer 8-bit fields
+use a divisor of 128 and integer 16-bit fields use 32768. Weights are unsigned
+while positions and normals are signed. Float fields are used directly. NGE2
+model UVs additionally use a fixed texture matrix:
+
+```text
+uv = normalized_uv * 8 - 8
+u16_uv = (raw_uv - 32768) / 4096
+```
+
+This maps the observed raw U16 range `32768..36864` onto the full `0..1`
+texture atlas. Exported skin weights are normalized again per vertex and
+quantized so the one or two glTF weight vectors total exactly 255 as normalized
+bytes.
 
 When bones are present, the runtime constructs a scale/translation matrix from
 the HGMS header. The diagonal scale is `position_scale * 32768.0`, and the
 translation is the header center. This matrix is combined with each matrix in
 the mesh bone palette before the display list is executed. The final simplified
-formula for exported positions must be validated against PSP fixed-point vertex
-conversion rather than assuming that the `32768` multiplier is applied directly
-to an integer position.
+formula used by the research converter is therefore:
+
+```text
+position = center + normalized_position * position_scale * 32768
+```
+
+This produces character and static-prop dimensions consistent with the
+inspected real samples. `--native-coordinates` remains useful for independently
+checking the convention against the game renderer.
+
+Two additional archive conventions were confirmed by real files:
+
+- a rigid HGMS with `bone_count == 0` may leave all palette slots as zero;
+- an HGOB model reference with low 24 bits equal to `0x000fff` is the null
+  shadow-model sentinel, not a missing HGMS.
+
+Large archives may also contain duplicate typed resource keys. References are
+resolved by typed key and expected signature; identical duplicate HPT data is
+safe to coalesce, while different candidates remain ambiguous.
 
 ## Executable evidence
 
@@ -331,8 +364,10 @@ converter:
 
 1. Name and validate HGMS fields at `+0x08`, `+0x0a` and `+0x0c`.
 2. Identify all eight material bytes and their fixed-function state semantics.
-3. Validate position, normal, UV and weight normalization rules against the GE.
-4. Determine source handedness, up axis, triangle winding and model units.
+3. Independently validate the implemented fixed-point rules against hardware or
+   a frame capture.
+4. Confirm the source handedness and UV origin against additional rendered
+   scenes; current character and door results use left-handed Y-up.
 5. Check for indexed, non-strip or less common VTYPE variants in more archives.
 6. Confirm bind-pose and inverse-bind-matrix conventions with a skinned export.
 7. Reverse all HGMN track encodings and interpolation modes.
