@@ -2,6 +2,8 @@ pub mod audio;
 pub mod evs;
 pub mod hgar;
 pub mod hgpt;
+pub mod sound;
+mod sound_mappings;
 #[path = "voice_ranges.rs"]
 pub mod voice;
 pub mod zpt;

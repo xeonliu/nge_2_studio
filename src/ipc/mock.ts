@@ -88,6 +88,7 @@ const parameterLabels: Record<number, string[]> = {
   0x8d: ["transitionFlags"],
   0x8e: ["displayFlags"],
   0x90: ["milliseconds"],
+  0x92: ["soundId"],
 };
 
 const commandDescriptions: Record<number, string> = {
@@ -97,6 +98,7 @@ const commandDescriptions: Record<number, string> = {
   0x8d: "替换图片/CG 层资源；空名称会清除图片",
   0x8e: "替换 telop 覆盖层资源",
   0x90: "等待指定毫秒数；运行时按 60 Hz 换算为帧数",
+  0x92: "播放指定音效 ID，并在运行时跟踪其播放句柄",
   0x95: "显示选择菜单；正文以全角斜线分隔，最多四项",
 };
 
@@ -131,7 +133,7 @@ const commands: EvsCommand[] = [
   command(6, 0x87, "EXTENSION", [637]),
   command(7, 0x8e, "SET_TELOP", [0], "scn_$w"),
   command(8, 0x01, "DIALOGUE", [0x1001, 3, 0x4000], "风越来越大了……"),
-  command(9, 0x69, "COMMAND", []),
+  command(9, 0x92, "PLAY_SOUND_EFFECT", [1005]),
   command(10, 0x20, "COMMAND", [1, 0, 12, 4]),
   command(11, 0x90, "WAIT_MS", [800]),
   command(12, 0x01, "DIALOGUE", [4, 2, 1050], "真嗣君，听得到吗？"),
@@ -237,6 +239,25 @@ export const mockIpc: StudioIpc = {
       archive: 0,
       entry: voiceId - 1,
       sampleRate: 44_100,
+      channels: 1,
+      durationMillis: 0,
+    };
+  },
+  async getSoundEffectPreview(document, soundId) {
+    return {
+      token: `demo-sound-${soundId}`,
+      url: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=",
+      mime: "audio/wav",
+      soundId,
+      packedId: 0x00000040,
+      bankSlot: 0,
+      bankName: "sys_se01.bin",
+      logicalBank: 0,
+      program: 0,
+      note: 0x40,
+      tracked: false,
+      source: resource("/PSP_GAME/USRDIR/sound/sys_se01.bin"),
+      sampleRate: 11_025,
       channels: 1,
       durationMillis: 0,
     };

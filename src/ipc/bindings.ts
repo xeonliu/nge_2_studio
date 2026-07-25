@@ -31,6 +31,7 @@ export const commands = {
 	readResourceRange: (resource: ResourceRef, offset: number, length: number) => typedError<BinaryChunk, string>(__TAURI_INVOKE("read_resource_range", { resource, offset, length })),
 	getImagePreview: (resource: ResourceRef) => typedError<ImagePreview, string>(__TAURI_INVOKE("get_image_preview", { resource })),
 	getAudioPreview: (document: ResourceRef, voiceId: number) => typedError<AudioPreview, string>(__TAURI_INVOKE("get_audio_preview", { document, voiceId })),
+	getSoundEffectPreview: (document: ResourceRef, soundId: number) => typedError<SoundEffectPreview, string>(__TAURI_INVOKE("get_sound_effect_preview", { document, soundId })),
 	exportResource: (resource: ResourceRef, destination: string) => typedError<ExportResult, string>(__TAURI_INVOKE("export_resource", { resource, destination })),
 	getSessionStatus: (sessionId: SessionId) => typedError<SessionStatus, string>(__TAURI_INVOKE("get_session_status", { sessionId })),
 };
@@ -224,6 +225,23 @@ export type SessionId = string;
 
 export type SessionStatus = {
 	cacheBytes: number,
+};
+
+export type SoundEffectPreview = {
+	token: string,
+	mime: string,
+	soundId: number,
+	packedId: number,
+	bankSlot: number,
+	bankName: string,
+	logicalBank: number,
+	program: number,
+	note: number,
+	tracked: boolean,
+	source: ResourceRef,
+	sampleRate: number,
+	channels: number,
+	durationMillis: number,
 };
 
 export type VisualReference = {

@@ -113,7 +113,7 @@ fn wave_spec(data: &[u8]) -> Result<(u16, u32), FormatError> {
     Err(audio_error("WAVE fmt chunk was not found"))
 }
 
-fn encode_pcm_wave(samples: &[f32], channels: u16, sample_rate: u32) -> Result<Vec<u8>, FormatError> {
+pub(crate) fn encode_pcm_wave(samples: &[f32], channels: u16, sample_rate: u32) -> Result<Vec<u8>, FormatError> {
     let data_size = samples
         .len()
         .checked_mul(2)

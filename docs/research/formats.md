@@ -20,6 +20,10 @@ the maintained parsers in the NGE2 translation project.
   size. Unknown records are retained as raw payload and do not stop parsing.
   See [EVS command research](evs-commands.md) for the runtime dispatcher,
   confirmed opcode semantics and current unknowns.
+- Event sound banks contain a 32-byte member table with `PPHD` metadata and PSX
+  ADPCM `.pbd` samples. `PPPG`, `PPTN`, and `PPVA` sections resolve a packed
+  bank/program/note ID to one or more waves; the studio decodes those waves to
+  PCM WAV for `0x92` previews.
 
 The preview is deliberately linear. It does not claim to emulate the game's
 conditional control flow or full script virtual machine.

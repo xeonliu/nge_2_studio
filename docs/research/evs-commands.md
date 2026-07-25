@@ -65,6 +65,41 @@ The command model exposes this evidence as a category, description, known
 parameter names, and parsed choice options. The UI consumes those fields rather
 than maintaining a separate opcode classification table.
 
+## Sound effect lookup and bank format
+
+The `0x92` call chain is `sub_088472E4 -> sub_08842ED0 -> sub_088496A8 ->
+sub_08849738 -> sub_0880918C`. `sub_088496A8` maps script sound IDs through a
+fixed system table (`1000..1037`), a small generic event table (`2000..2012` in
+supported event modes), or one of the `_SidToSe*` event tables. The packed value
+has this layout:
+
+- bits `16..23`: logical bank ID;
+- bits `8..14`: program;
+- bits `0..6`: MIDI note;
+- bit `15`: request a tracked playback handle;
+- low-byte bit `7`: special BGM-slot path, not a normal sound-effect preview.
+
+`sub_0880996C` maps the logical bank to a loaded physical slot. Slot 0 is
+`/PSP_GAME/USRDIR/sound/sys_se01.bin`. Slot 1 first uses a playable `.bin`
+member in the current EVS segment, then the nearest playable bank earlier in
+the same HGAR. If neither exists, `sub_08971398` confirms the global fallback
+`/PSP_GAME/USRDIR/sound/esg_se01.bin` is loaded into slot 1. Slots 2 and 3
+depend on live game mode and may refer to EVA, map, or situation banks, so the
+studio reports that missing context instead of selecting a file heuristically.
+The same applies to base scripts such as `f000.evs` whose slot 1 bank is loaded
+by the caller before the EVS starts; the archive alone cannot identify it.
+
+The bank is a 32-byte member table containing `.phd` and `.pbd` files. The
+`.phd` `PPHD` header points to `PPPG` program, `PPTN` tone, and `PPVA` wave
+tables. Program offsets are relative to the `PPHD` base; tones select waves by
+note range; each wave gives a `.pbd` offset, sample rate, and byte size. `.pbd`
+payloads use 16-byte PSX ADPCM frames. This structure follows the runtime
+lookups at `sub_08994B34`, `sub_08994A94`, and `sub_08994A14`.
+
+The preview decodes PSX ADPCM to mono PCM WAV and mixes matching tone layers.
+Tone volume and pan are not yet applied, so layered effects are an approximate
+audition rather than a bit-exact emulation of the PSP audio engine.
+
 ## Remaining work
 
 - Name individual conditional and state opcodes only after tracing their
@@ -74,3 +109,4 @@ than maintaining a separate opcode classification table.
   transition flags.
 - Compare other regional executables before treating handler addresses or
   extension IDs as cross-version constants.
+- Recover tone volume, pan, and pitch fields for closer sound-effect rendering.

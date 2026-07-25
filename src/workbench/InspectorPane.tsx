@@ -3,6 +3,7 @@ import { useAppStore } from "../app/store";
 import { formatHex } from "../shared/lib/format";
 import { IconButton } from "../shared/ui/IconButton";
 import type { Resolution } from "../ipc/bindings";
+import { SoundEffectPlayback } from "../viewers/evs/SoundEffectPlayback";
 
 function resolutionStatus(resolution: Resolution | undefined) {
   if (!resolution) return null;
@@ -52,6 +53,9 @@ export function InspectorPane() {
               )}
               {command.options.length > 0 && <ol className="command-options inspector-options">{command.options.map((option, index) => <li key={`${index}-${option}`}>{option}</li>)}</ol>}
             </section>
+          )}
+          {command?.opcode === 0x92 && command.parameters[0] !== undefined && selection?.resource && (
+            <SoundEffectPlayback document={selection.resource} soundId={command.parameters[0]} />
           )}
           {visual && (
             <section className="property-section">

@@ -387,6 +387,14 @@ button.data-row:hover { background: var(--bg-hover); }
 .inspector-scroll { height: calc(100% - 34px); }
 .property-section { padding: 11px 10px 13px; border-bottom: 1px solid var(--border); }
 .property-section h2 { margin: 0 0 9px; color: var(--text-muted); font-size: 10px; text-transform: uppercase; }
+.sound-effect-section h2 { display: flex; align-items: center; gap: 5px; }
+.sound-effect-player { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 7px; }
+.sound-effect-player input[type="range"] { width: 100%; min-width: 0; accent-color: var(--accent); }
+.sound-effect-player > code { color: var(--text-muted); font-size: 9px; white-space: nowrap; }
+.sound-effect-section audio { display: none; }
+.sound-effect-meta { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--border); }
+.sound-effect-error { display: flex; align-items: flex-start; gap: 6px; margin-top: 9px; color: var(--missing); font-size: 10px; line-height: 1.45; }
+.sound-effect-error svg { flex: 0 0 auto; margin-top: 1px; }
 .resource-heading { margin-bottom: 8px; font-weight: 650; }
 .property-grid { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 7px 8px; margin: 0; font-size: 11px; }
 .property-grid > .property-pair { display: contents; }

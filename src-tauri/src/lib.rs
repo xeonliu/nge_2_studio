@@ -22,6 +22,7 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         read_resource_range,
         get_image_preview,
         get_audio_preview,
+        get_sound_effect_preview,
         export_resource,
         get_session_status
     ])

@@ -110,6 +110,25 @@ pub struct AudioPreview {
 
 #[derive(Clone, Debug, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct SoundEffectPreview {
+    pub token: String,
+    pub mime: String,
+    pub sound_id: u32,
+    pub packed_id: u32,
+    pub bank_slot: u8,
+    pub bank_name: String,
+    pub logical_bank: u8,
+    pub program: u8,
+    pub note: u8,
+    pub tracked: bool,
+    pub source: ResourceRef,
+    pub sample_rate: u32,
+    pub channels: u16,
+    pub duration_millis: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct ExportResult {
     pub destination: String,
     pub bytes_written: u32,
@@ -123,9 +142,15 @@ pub struct SessionStatus {
 
 #[tauri::command]
 #[specta::specta]
-pub fn open_iso(path: String, manager: State<'_, SessionManager>) -> Result<OpenIsoResponse, String> {
+pub fn open_iso(
+    path: String,
+    manager: State<'_, SessionManager>,
+) -> Result<OpenIsoResponse, String> {
     let session = manager.open(&path)?;
-    let root = session.iso.list_directory("/").map_err(|error| error.to_string())?;
+    let root = session
+        .iso
+        .list_directory("/")
+        .map_err(|error| error.to_string())?;
     Ok(OpenIsoResponse {
         session_id: session.id.clone(),
         metadata: session.iso.metadata(),
@@ -148,7 +173,10 @@ pub fn list_directory(
     manager: State<'_, SessionManager>,
 ) -> Result<Page<IsoEntry>, String> {
     let session = manager.get(&session_id)?;
-    let entries = session.iso.list_directory(&path).map_err(|error| error.to_string())?;
+    let entries = session
+        .iso
+        .list_directory(&path)
+        .map_err(|error| error.to_string())?;
     Ok(page(entries, page_request))
 }
 
@@ -341,6 +369,42 @@ pub fn get_audio_preview(
 
 #[tauri::command]
 #[specta::specta]
+pub fn get_sound_effect_preview(
+    document: ResourceRef,
+    sound_id: u32,
+    manager: State<'_, SessionManager>,
+) -> Result<SoundEffectPreview, String> {
+    let session = manager.get(&document.session_id)?;
+    let source = session.sound_effect_source(&document, sound_id)?;
+    let decoded = source.decoded;
+    let token = session.store_preview_with_key(
+        &source.resource,
+        &format!("sound-{sound_id}"),
+        PreviewBlob {
+            mime: "audio/wav",
+            bytes: decoded.wav,
+        },
+    );
+    Ok(SoundEffectPreview {
+        token,
+        mime: "audio/wav".into(),
+        sound_id,
+        packed_id: source.mapping.packed_id,
+        bank_slot: source.mapping.slot,
+        bank_name: source.bank_name,
+        logical_bank: source.mapping.logical_bank,
+        program: source.mapping.program,
+        note: source.mapping.note,
+        tracked: source.mapping.tracked,
+        source: source.resource,
+        sample_rate: decoded.sample_rate,
+        channels: decoded.channels,
+        duration_millis: decoded.duration_millis,
+    })
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn export_resource(
     resource: ResourceRef,
     destination: String,
@@ -423,10 +487,15 @@ fn resolve_portraits(session: &IsoSession, storyboard: &mut Storyboard) {
             continue;
         };
         if let Some(entry) = archive.entries.iter().find(|entry| {
-            entry.display_name.eq_ignore_ascii_case(&portrait.static_member)
-                || entry.short_name.eq_ignore_ascii_case(&portrait.static_member)
+            entry
+                .display_name
+                .eq_ignore_ascii_case(&portrait.static_member)
+                || entry
+                    .short_name
+                    .eq_ignore_ascii_case(&portrait.static_member)
         }) {
-            portrait.resolution = Resolution::Exact(archive_ref.child(entry.index, &entry.display_name));
+            portrait.resolution =
+                Resolution::Exact(archive_ref.child(entry.index, &entry.display_name));
         }
     }
 }

@@ -1,7 +1,8 @@
 use iso_vfs::IsoImage;
 use lru::LruCache;
-use nge2_formats::audio::{index_wave_archive, WaveEntry};
+use nge2_formats::audio::{index_wave_archive, DecodedAudio, WaveEntry};
 use nge2_formats::hgar::HgarArchive;
+use nge2_formats::sound::{decode_sound_bank, resolve_sound_effect, SoundEffectMapping};
 use nge2_formats::voice::{voice_ordinal, VOICE_ENTRY_COUNT};
 use nge2_formats::zpt;
 use nge2_preview::{ContainerMember, GamePath, ResourceRef, SessionId};
@@ -47,6 +48,14 @@ pub struct VoiceClip {
     pub entry: u32,
     pub resource: ResourceRef,
     pub bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SoundEffectSource {
+    pub mapping: SoundEffectMapping,
+    pub resource: ResourceRef,
+    pub bank_name: String,
+    pub decoded: DecodedAudio,
 }
 
 #[derive(Clone, Debug)]
@@ -167,17 +176,153 @@ impl IsoSession {
             data = decode_zpt(&member.name, data)?;
         }
         let data = Arc::new(data);
-        self.resources
-            .lock()
-            .put(key, data.len(), data.clone());
+        self.resources.lock().put(key, data.len(), data.clone());
         Ok(data)
     }
 
     pub fn store_preview(&self, resource: &ResourceRef, blob: PreviewBlob) -> String {
-        let token = format!("{}-{}", self.id.0, stable_hash(&resource_key(resource)));
+        self.store_preview_with_key(resource, "", blob)
+    }
+
+    pub fn store_preview_with_key(
+        &self,
+        resource: &ResourceRef,
+        discriminator: &str,
+        blob: PreviewBlob,
+    ) -> String {
+        let key = format!("{}#{discriminator}", resource_key(resource));
+        let token = format!("{}-{}", self.id.0, stable_hash(&key));
         let size = blob.bytes.len();
-        self.previews.lock().put(token.clone(), size, Arc::new(blob));
+        self.previews
+            .lock()
+            .put(token.clone(), size, Arc::new(blob));
         token
+    }
+
+    pub fn sound_effect_source(
+        &self,
+        document: &ResourceRef,
+        sound_id: u32,
+    ) -> Result<SoundEffectSource, String> {
+        if document.session_id != self.id {
+            return Err("资源引用不属于当前 ISO session".into());
+        }
+        if document.members.is_empty() {
+            return Err("EVS 资源必须位于 HGAR 成员中".into());
+        }
+        let mapping = resolve_sound_effect(sound_id, &document.iso_path.0)
+            .ok_or_else(|| format!("sound ID {sound_id} 在当前事件类型中没有可预览的映射"))?;
+        let (resource, bank_name, decoded) = match mapping.slot {
+            0 => {
+                let path = "/PSP_GAME/USRDIR/sound/sys_se01.bin";
+                let resource = ResourceRef {
+                    session_id: self.id.clone(),
+                    iso_path: GamePath(path.into()),
+                    members: Vec::new(),
+                };
+                let decoded = self.decode_sound_bank_resource(&resource, mapping)?;
+                (resource, "sys_se01.bin".into(), decoded)
+            }
+            1 => {
+                let mut archive_ref = document.clone();
+                archive_ref.members.pop();
+                let archive_data = self.resource_data(&archive_ref)?;
+                let archive =
+                    HgarArchive::parse(&archive_data).map_err(|error| error.to_string())?;
+                let document_index = document
+                    .members
+                    .last()
+                    .map(|member| member.index)
+                    .ok_or_else(|| "EVS 资源缺少 HGAR 成员索引".to_string())?;
+                let segment_end = archive
+                    .entries
+                    .iter()
+                    .find(|entry| {
+                        entry.index > document_index
+                            && entry.display_name.to_ascii_lowercase().ends_with(".evs")
+                    })
+                    .map(|entry| entry.index)
+                    .unwrap_or(u32::MAX);
+                let segment_candidates = archive
+                    .entries
+                    .iter()
+                    .filter(|entry| {
+                        entry.index > document_index
+                            && entry.index < segment_end
+                            && is_bin_member(&entry.display_name)
+                    })
+                    .filter_map(|entry| self.playable_archive_bank(&archive_ref, entry, mapping))
+                    .collect::<Vec<_>>();
+                if segment_candidates.len() > 1 {
+                    let names = segment_candidates
+                        .iter()
+                        .map(|(_, name, _)| name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return Err(format!("当前 EVS 成员段内有多个可播放音库：{names}"));
+                }
+                if let Some(candidate) = segment_candidates.into_iter().next() {
+                    candidate
+                } else if let Some(candidate) = archive
+                    .entries
+                    .iter()
+                    .rev()
+                    .filter(|entry| {
+                        entry.index < document_index && is_bin_member(&entry.display_name)
+                    })
+                    .find_map(|entry| self.playable_archive_bank(&archive_ref, entry, mapping))
+                {
+                    candidate
+                } else {
+                    let path = "/PSP_GAME/USRDIR/sound/esg_se01.bin";
+                    let resource = ResourceRef {
+                        session_id: self.id.clone(),
+                        iso_path: GamePath(path.into()),
+                        members: Vec::new(),
+                    };
+                    let decoded = match self.decode_sound_bank_resource(&resource, mapping) {
+                        Ok(decoded) => decoded,
+                        Err(_) => {
+                            return Err(format!(
+                                "sound ID {sound_id} 使用 slot 1，但当前 EVS 没有携带可播放音库；它依赖进入脚本前已加载的事件音库，无法仅凭该 EVS 确定"
+                            ));
+                        }
+                    };
+                    (resource, "esg_se01.bin".into(), decoded)
+                }
+            }
+            slot => {
+                return Err(format!(
+                    "sound ID {sound_id} 使用 slot {slot}；该音库依赖当前游戏模式，EVS 文件本身无法确定"
+                ));
+            }
+        };
+        Ok(SoundEffectSource {
+            mapping,
+            resource,
+            bank_name,
+            decoded,
+        })
+    }
+
+    fn playable_archive_bank(
+        &self,
+        archive_ref: &ResourceRef,
+        entry: &nge2_formats::hgar::HgarEntry,
+        mapping: SoundEffectMapping,
+    ) -> Option<(ResourceRef, String, DecodedAudio)> {
+        let resource = archive_ref.child(entry.index, &entry.display_name);
+        let decoded = self.decode_sound_bank_resource(&resource, mapping).ok()?;
+        Some((resource, entry.display_name.clone(), decoded))
+    }
+
+    fn decode_sound_bank_resource(
+        &self,
+        resource: &ResourceRef,
+        mapping: SoundEffectMapping,
+    ) -> Result<DecodedAudio, String> {
+        let data = self.resource_data(resource)?;
+        decode_sound_bank(&data, mapping.program, mapping.note).map_err(|error| error.to_string())
     }
 
     pub fn voice_clip(&self, voice_id: u32) -> Result<VoiceClip, String> {
@@ -220,13 +365,23 @@ impl IsoSession {
         let mut indexes = Vec::with_capacity(3);
         for archive in 0..3u8 {
             let path = format!("/PSP_GAME/USRDIR/voice/na{archive}.bin");
-            let size = self.iso.entry(&path).map_err(|error| error.to_string())?.size;
-            let mut file = self.iso.open_file(&path).map_err(|error| error.to_string())?;
+            let size = self
+                .iso
+                .entry(&path)
+                .map_err(|error| error.to_string())?
+                .size;
+            let mut file = self
+                .iso
+                .open_file(&path)
+                .map_err(|error| error.to_string())?;
             let entries = index_wave_archive(&mut file, u64::from(size))
                 .map_err(|error| format!("{path}: {error}"))?;
             indexes.push(VoiceArchiveIndex { path, entries });
         }
-        let total = indexes.iter().map(|archive| archive.entries.len()).sum::<usize>();
+        let total = indexes
+            .iter()
+            .map(|archive| archive.entries.len())
+            .sum::<usize>();
         if total != VOICE_ENTRY_COUNT {
             return Err(format!(
                 "语音归档共 {total} 条，预期 {VOICE_ENTRY_COUNT} 条；ISO 版本或文件可能不受支持"
@@ -237,13 +392,22 @@ impl IsoSession {
         Ok(indexes)
     }
 
-    pub fn select_variant(&self, document: &ResourceRef, command_index: u32, selected: ResourceRef) {
+    pub fn select_variant(
+        &self,
+        document: &ResourceRef,
+        command_index: u32,
+        selected: ResourceRef,
+    ) {
         self.variants
             .lock()
             .insert((resource_key(document), command_index), selected);
     }
 
-    pub fn selected_variant(&self, document: &ResourceRef, command_index: u32) -> Option<ResourceRef> {
+    pub fn selected_variant(
+        &self,
+        document: &ResourceRef,
+        command_index: u32,
+    ) -> Option<ResourceRef> {
         self.variants
             .lock()
             .get(&(resource_key(document), command_index))
@@ -253,6 +417,10 @@ impl IsoSession {
     pub fn cache_bytes(&self) -> u32 {
         (self.resources.lock().bytes + self.previews.lock().bytes) as u32
     }
+}
+
+fn is_bin_member(name: &str) -> bool {
+    name.to_ascii_lowercase().ends_with(".bin")
 }
 
 fn decode_zpt(name: &str, data: Vec<u8>) -> Result<Vec<u8>, String> {
@@ -280,4 +448,121 @@ fn stable_hash(value: &str) -> String {
         hash = hash.wrapping_mul(0x100_0000_01b3);
     }
     format!("{hash:016x}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nge2_formats::evs::EvsScript;
+
+    #[test]
+    fn resolves_sound_effects_from_configured_iso_fixture() {
+        let Ok(path) = std::env::var("NGE2_ISO_FIXTURE") else {
+            return;
+        };
+        let session = SessionManager::default().open(path).unwrap();
+        let archive_ref = ResourceRef {
+            session_id: session.id.clone(),
+            iso_path: GamePath("/PSP_GAME/USRDIR/event/f052.har".into()),
+            members: Vec::new(),
+        };
+        let archive_data = session.resource_data(&archive_ref).unwrap();
+        let archive = HgarArchive::parse(&archive_data).unwrap();
+        let evs = archive
+            .entries
+            .iter()
+            .find(|entry| entry.display_name.eq_ignore_ascii_case("f052.evs"))
+            .unwrap();
+        let document = archive_ref.child(evs.index, &evs.display_name);
+
+        let system = session.sound_effect_source(&document, 1005).unwrap();
+        assert_eq!(
+            (system.mapping.slot, system.bank_name.as_str()),
+            (0, "sys_se01.bin")
+        );
+        assert_eq!(&system.decoded.wav[..4], b"RIFF");
+
+        let script_data = session.resource_data(&document).unwrap();
+        let script = EvsScript::parse(&script_data).unwrap();
+        let event = script
+            .commands
+            .iter()
+            .filter(|command| command.opcode == 0x92)
+            .filter_map(|command| command.parameters.first().copied())
+            .filter_map(|sound_id| session.sound_effect_source(&document, sound_id).ok())
+            .find(|source| source.mapping.slot == 1)
+            .expect("f052.evs should contain a slot 1 sound effect");
+        assert_eq!(event.bank_name, "fte_se52.bin");
+        assert_eq!(&event.decoded.wav[..4], b"RIFF");
+    }
+
+    #[test]
+    fn audits_slot_one_sound_banks_in_configured_iso_fixture() {
+        let Ok(path) = std::env::var("NGE2_ISO_FIXTURE") else {
+            return;
+        };
+        let session = SessionManager::default().open(path).unwrap();
+        let archives = session
+            .iso
+            .list_directory("/PSP_GAME/USRDIR/event")
+            .unwrap();
+        let mut failures = Vec::new();
+        let mut checked = 0usize;
+        for archive_entry in archives.into_iter().filter(|entry| {
+            !entry.is_directory && entry.name.to_ascii_lowercase().ends_with(".har")
+        }) {
+            let archive_ref = ResourceRef {
+                session_id: session.id.clone(),
+                iso_path: GamePath(archive_entry.path),
+                members: Vec::new(),
+            };
+            let Ok(archive_data) = session.resource_data(&archive_ref) else {
+                continue;
+            };
+            let Ok(archive) = HgarArchive::parse(&archive_data) else {
+                continue;
+            };
+            for entry in archive
+                .entries
+                .iter()
+                .filter(|entry| entry.display_name.to_ascii_lowercase().ends_with(".evs"))
+            {
+                let document = archive_ref.child(entry.index, &entry.display_name);
+                let Ok(script_data) = session.resource_data(&document) else {
+                    continue;
+                };
+                let Ok(script) = EvsScript::parse(&script_data) else {
+                    continue;
+                };
+                for sound_id in script
+                    .commands
+                    .iter()
+                    .filter(|command| command.opcode == 0x92)
+                    .filter_map(|command| command.parameters.first().copied())
+                {
+                    let Some(mapping) = resolve_sound_effect(sound_id, &document.iso_path.0) else {
+                        continue;
+                    };
+                    if mapping.slot != 1 {
+                        continue;
+                    }
+                    checked += 1;
+                    if let Err(error) = session.sound_effect_source(&document, sound_id) {
+                        failures.push(format!(
+                            "{}:{} sound {sound_id}: {error}",
+                            document.iso_path.0, entry.display_name
+                        ));
+                    }
+                }
+            }
+        }
+        eprintln!(
+            "checked {checked} slot 1 sound commands; {} unresolved",
+            failures.len()
+        );
+        for failure in failures.iter().take(40) {
+            eprintln!("{failure}");
+        }
+        assert_eq!(failures.len(), 6, "unexpected slot 1 resolution coverage");
+    }
 }

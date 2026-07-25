@@ -14,6 +14,7 @@ import type {
   ResourceRef,
   SessionId,
   SessionStatus,
+  SoundEffectPreview,
   IsoEntry,
   VisualReference,
 } from "./bindings";
@@ -52,6 +53,10 @@ const realIpc = {
     const preview = unwrap(await commands.getAudioPreview(document, voiceId));
     return { ...preview, url: convertFileSrc(preview.token, "nge2-preview") };
   },
+  async getSoundEffectPreview(document: ResourceRef, soundId: number) {
+    const preview = unwrap(await commands.getSoundEffectPreview(document, soundId));
+    return { ...preview, url: convertFileSrc(preview.token, "nge2-preview") };
+  },
   async getSessionStatus(sessionId: SessionId) { return unwrap(await commands.getSessionStatus(sessionId)); },
   demoEvsResource(_sessionId: SessionId): ResourceRef {
     throw new Error("演示资源仅在浏览器开发模式可用");
@@ -71,6 +76,7 @@ export interface StudioIpc {
   readResourceRange(resource: ResourceRef, offset: number, length: number): Promise<BinaryChunk>;
   getImagePreview(resource: ResourceRef): Promise<ImagePreview & { url: string }>;
   getAudioPreview(document: ResourceRef, voiceId: number): Promise<AudioPreview & { url: string }>;
+  getSoundEffectPreview(document: ResourceRef, soundId: number): Promise<SoundEffectPreview & { url: string }>;
   getSessionStatus(sessionId: SessionId): Promise<SessionStatus>;
   demoEvsResource(sessionId: SessionId): ResourceRef;
 }
